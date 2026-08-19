@@ -26,6 +26,7 @@ _ALLOWED_DOMAINS = {
 
 _GARBLED_MARKERS = ('�', '\x00', 'english search english', 'يرجى الانتظار')
 _LEGAL_HINT_RE = re.compile(r'(قانون|نظام|تعليمات|المادة|مادة|تشريع|law|regulation|article)', re.I)
+_ARTICLE_STRUCTURE_RE = re.compile(r'(?:المادة|مادة|article)\s*\(?\s*[0-9٠-٩]{1,4}', re.I)
 
 
 def _canonical_chunks(chunks: Iterable[tuple[str | None, str]]) -> str:
@@ -64,6 +65,11 @@ def quality_gate(*, title: str, text: str, domain: str, chunks: list[tuple[str |
         return False, 'garbled_or_boilerplate_text'
     if not _LEGAL_HINT_RE.search(f'{title} {cleaned[:2500]}'):
         return False, 'no_legal_language_detected'
+    # Government index/list pages often contain many law titles but no statutory body.
+    # They are crawl entry points, not legal evidence, so require an actual numbered
+    # article marker before automatic promotion.
+    if not _ARTICLE_STRUCTURE_RE.search(cleaned):
+        return False, 'no_statutory_article_structure'
 
     chunk_lengths = [len(' '.join((body or '').replace('\x00', ' ').split())) for _, body in chunks]
     aggregate_chunk_text = sum(chunk_lengths)
@@ -112,8 +118,6 @@ class LegalUpdateLedger:
 
     def _previous_fingerprint(self, source_url: str) -> str | None:
         if supabase_store.configured:
-            # Do not silently fall back to an ephemeral runner DB if the cloud updater
-            # schema is missing or broken. The scheduled job must fail visibly instead.
             return supabase_store.get_legal_sync_fingerprint(source_url)
         self.ensure_tables()
         with repository.connect() as con:
@@ -152,8 +156,6 @@ class LegalUpdateLedger:
         now = now_iso()
         details = details or {}
 
-        # Cloud first: if a configured persistent ledger is unavailable, fail rather than
-        # falsely reporting that an update was durably recorded.
         if supabase_store.configured:
             supabase_store.log_legal_update_event(
                 source_id=source_id,
