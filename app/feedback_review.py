@@ -105,8 +105,6 @@ def review_negative_feedback(*,feedback_id:str|None,conversation_id:str|None,not
     review_queries=[question]
     if case:
         review_queries.extend(case.retrieval_queries[:6])
-    # The user's correction/note can broaden search, but is never reused as a learned
-    # answer or persisted retrieval hint by itself.
     if note and len(note.strip())>=2:
         review_queries.append(note.strip()[:600])
     review_queries=list(dict.fromkeys(q for q in review_queries if q))[:10]
@@ -149,6 +147,21 @@ def review_negative_feedback(*,feedback_id:str|None,conversation_id:str|None,not
         retrieval_hints=hints,
         review_reason=reason,
     )
+
+    # A correction strong enough for automatic promotion becomes part of conversation
+    # continuity immediately, so the user's next follow-up sees the corrected state.
+    if auto_corrected:
+        try:
+            runtime_store.log_evaluation(
+                conversation_id,question,route.intent,route.primary_domain,True,
+                float(new_eval.score),new_eval.reasons,'feedback-auto-correction',
+            )
+            runtime_store.save_message(
+                conversation_id,'assistant',proposed,route.primary_domain,'feedback_correction'
+            )
+        except Exception:
+            pass
+
     return {
         'review_id':saved.get('id'),
         'status':status,
@@ -157,4 +170,5 @@ def review_negative_feedback(*,feedback_id:str|None,conversation_id:str|None,not
         'new_score':float(new_eval.score) if new_eval else None,
         'proposed_answer':proposed,
         'sources':_source_refs(sources) if auto_corrected else [],
+        'domain':route.primary_domain,
     }
