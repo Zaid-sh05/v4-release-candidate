@@ -1,0 +1,44 @@
+Qanoni Pilot V3.6 FINAL — Build Verification
+============================================
+
+Verified before packaging:
+- Python compileall: PASS
+- JavaScript syntax (node --check): PASS
+- Router tests: PASS
+- Repository tests: PASS
+- No-emoji tests: PASS
+- UI invariant tests: PASS
+- FastAPI smoke tests: PASS
+- Pilot acceptance tests: PASS
+- V3.4 adaptive/self-evaluation tests: PASS
+- V3.5 conversation continuity tests: PASS
+- Doctor local engine checks: PASS
+- SQLite corpus integrity/readability: PASS
+- Runtime tables cleared before packaging: PASS
+- Secret scan: no real OpenAI/Supabase keys packaged
+
+Corpus snapshot:
+- 3,472 legal chunks
+- 187 documents
+- 19 registered official sources
+- 6 canonical documents
+
+Cloud integration code included:
+- OpenAI Responses API synthesis
+- OpenAI text-embedding-3-small query/document embeddings
+- Supabase legal_documents/legal_chunks schema
+- pgvector HNSW index
+- PostgreSQL full-text search
+- hybrid_search_legal_chunks RPC
+- Supabase conversation/message/evaluation/feedback persistence
+- SQLite fallback
+
+Network integration check was intentionally NOT executed during packaging because
+real user credentials are not included in the release. After filling .env and
+running supabase/schema.sql, run:
+
+  python scripts/check_integrations.py
+
+Honest coverage status:
+- Stronger/core-ready: Personal Status, Companies, Traffic, Traffic Points, Sharia Procedure
+- Partial/reference gaps remain in full consolidated Penal, Civil, Criminal Procedure, Civil Procedure coverage.

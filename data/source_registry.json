@@ -1,0 +1,241 @@
+[
+  {
+    "id": "ccd_laws",
+    "name_ar": "قوانين دائرة مراقبة الشركات",
+    "name_en": "Companies Control Department Laws",
+    "authority": "دائرة مراقبة الشركات",
+    "url": "https://ccd.gov.jo/Ar/List/%D8%A7%D9%84%D9%82%D9%88%D8%A7%D9%86%D9%8A%D9%86",
+    "sync_mode": "crawl",
+    "notes": "Companies, insolvency and investment-related laws.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "commercial"
+    ]
+  },
+  {
+    "id": "lob_legislation",
+    "name_ar": "ديوان التشريع والرأي — التشريعات",
+    "name_en": "Legislation and Opinion Bureau — Legislation",
+    "authority": "ديوان التشريع والرأي",
+    "url": "https://lob.gov.jo/?lang=ar&v=1",
+    "sync_mode": "reference",
+    "notes": "المرجع المركزي للتشريعات الأردنية. الربط الديناميكي مخصص للتحديث والتحقق من النسخ النافذة.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "general",
+      "civil",
+      "criminal",
+      "procedure",
+      "traffic",
+      "commercial",
+      "labor",
+      "cyber",
+      "administrative",
+      "real_estate",
+      "constitutional",
+      "tax_finance",
+      "personal_status"
+    ]
+  },
+  {
+    "id": "modee_privacy",
+    "name_ar": "تشريعات حماية البيانات الشخصية",
+    "name_en": "Personal Data Protection Legislation",
+    "authority": "وزارة الاقتصاد الرقمي والريادة",
+    "url": "https://www.modee.gov.jo/AR/List/%D8%A7%D9%84%D9%82%D9%88%D8%A7%D9%86%D9%8A%D9%86_%D9%88%D8%A7%D9%84%D8%A3%D9%86%D8%B8%D9%85%D8%A9_%D9%88_%D8%A7%D9%84%D8%AA%D8%B9%D9%84%D9%8A%D9%85%D8%A7%D8%AA_%D8%A7%D9%84%D8%B5%D8%A7%D8%AF%D8%B1%D8%A9_%D8%A8%D9%85%D9%82%D8%AA%D8%B6%D8%A7%D9%87",
+    "sync_mode": "crawl",
+    "notes": "Personal Data Protection Law No. 24 of 2023 and implementing regulations.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "cyber"
+    ]
+  },
+  {
+    "id": "moj_laws",
+    "name_ar": "قوانين وزارة العدل",
+    "name_en": "Ministry of Justice Laws",
+    "authority": "وزارة العدل الأردنية",
+    "url": "https://www.moj.gov.jo/AR/List/%D8%A7%D9%84%D9%82%D9%88%D8%A7%D9%86%D9%8A%D9%86",
+    "sync_mode": "crawl",
+    "notes": "Justice-sector laws and amendments.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "civil",
+      "criminal",
+      "procedure",
+      "administrative",
+      "general"
+    ]
+  },
+  {
+    "id": "moj_penal_context",
+    "name_ar": "العقوبات وبدائل العقوبات - وزارة العدل",
+    "name_en": "Penal Law and Alternative Sanctions - Ministry of Justice",
+    "authority": "وزارة العدل الأردنية",
+    "url": "https://www.moj.gov.jo/AR/List/%D8%A8%D8%AF%D8%A7%D8%A6%D9%84_%D8%A7%D9%84%D8%B9%D9%82%D9%88%D8%A8%D8%A7%D8%AA_%D8%A7%D9%84%D8%B3%D8%A7%D9%84%D8%A8%D8%A9_%D9%84%D9%84%D8%AD%D8%B1%D9%8A%D8%A9",
+    "sync_mode": "crawl",
+    "notes": "Official Ministry of Justice criminal-law context, including Penal Code amendments and alternative sanctions.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "criminal"
+    ]
+  },
+  {
+    "id": "moj_systems",
+    "name_ar": "أنظمة وزارة العدل",
+    "name_en": "Ministry of Justice Regulations",
+    "authority": "وزارة العدل الأردنية",
+    "url": "https://www.moj.gov.jo/AR/List/%D8%A7%D9%84%D8%A3%D9%86%D8%B8%D9%85%D8%A9",
+    "sync_mode": "crawl",
+    "notes": "Justice-sector regulations.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "civil",
+      "criminal",
+      "procedure",
+      "administrative",
+      "general"
+    ]
+  },
+  {
+    "id": "mol_laws",
+    "name_ar": "قوانين وزارة العمل",
+    "name_en": "Ministry of Labour Laws",
+    "authority": "وزارة العمل الأردنية",
+    "url": "https://mol.gov.jo/AR/List/%D8%A7%D9%84%D9%82%D9%88%D8%A7%D9%86%D9%8A%D9%86",
+    "sync_mode": "crawl",
+    "notes": "Labour Law No. 8 of 1996 and amendments, professional work laws.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "labor"
+    ]
+  },
+  {
+    "id": "pm_official_gazette",
+    "name_ar": "الجريدة الرسمية - رئاسة الوزراء",
+    "name_en": "Official Gazette - Prime Ministry",
+    "authority": "رئاسة الوزراء الأردنية",
+    "url": "https://www.pm.gov.jo/ar/Pages/NewsPaper",
+    "sync_mode": "crawl",
+    "notes": "Primary freshness source for newly published laws, amendments and regulations.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "general",
+      "constitutional",
+      "civil",
+      "criminal",
+      "procedure",
+      "traffic",
+      "commercial",
+      "labor",
+      "cyber",
+      "tax_finance",
+      "administrative",
+      "real_estate",
+      "personal_status"
+    ]
+  },
+  {
+    "id": "psd_laws",
+    "name_ar": "قوانين مديرية الأمن العام",
+    "name_en": "Public Security Directorate Laws",
+    "authority": "مديرية الأمن العام",
+    "url": "https://psd.gov.jo/ar-jo/%D8%A7%D9%84%D9%85%D8%AD%D8%AA%D9%88%D9%89/%D9%82%D9%88%D8%A7%D9%86%D9%8A%D9%86/",
+    "sync_mode": "crawl",
+    "notes": "Traffic and cybercrime legal publications.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "traffic",
+      "cyber",
+      "criminal"
+    ]
+  },
+  {
+    "id": "psd_traffic",
+    "name_ar": "تشريعات المعهد المروري الأردني",
+    "name_en": "Jordan Traffic Institute Legislation",
+    "authority": "مديرية الأمن العام - المعهد المروري الأردني",
+    "url": "https://www.psd.gov.jo/ar-jo/%D8%A7%D9%84%D8%A5%D8%AF%D8%A7%D8%B1%D8%A7%D8%AA-%D9%88%D8%A7%D9%84%D9%88%D8%AD%D8%AF%D8%A7%D8%AA/%D8%A7%D9%84%D9%85%D8%B9%D9%87%D8%AF-%D8%A7%D9%84%D9%85%D8%B1%D9%88%D8%B1%D9%8A-%D8%A7%D9%84%D8%A3%D8%B1%D8%AF%D9%86%D9%8A/%D8%A7%D9%84%D8%AA%D8%B4%D8%B1%D9%8A%D8%B9%D8%A7%D8%AA-%D9%88%D8%A7%D9%84%D8%A5%D8%B5%D8%AF%D8%A7%D8%B1%D8%A7%D8%AA/",
+    "sync_mode": "crawl",
+    "notes": "Traffic Law No. 49 of 2008 and amendments, traffic-points system and related instructions.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "traffic"
+    ]
+  },
+  {
+    "id": "sjd_laws",
+    "name_ar": "قوانين دائرة قاضي القضاة",
+    "name_en": "Chief Islamic Justice Department Laws",
+    "authority": "دائرة قاضي القضاة",
+    "url": "https://www.sjd.gov.jo/AR/List/%D8%A7%D9%84%D9%82%D9%88%D8%A7%D9%86%D9%8A%D9%86",
+    "sync_mode": "crawl",
+    "notes": "Personal status, Sharia procedure and Sharia enforcement.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "personal_status",
+      "procedure"
+    ]
+  },
+  {
+    "id": "moh_core_laws",
+    "name_ar": "قوانين حكومية مستضافة لدى وزارة الصحة",
+    "name_en": "Government law copies hosted by Ministry of Health",
+    "authority": "وزارة الصحة الأردنية",
+    "url": "https://moh.gov.jo/ar/Tafeileh/InfoPageDaynamic/172/562",
+    "sync_mode": "crawl",
+    "notes": "نسخ حكومية مستضافة لعدد من القوانين الأساسية، منها القانون المدني وقانون العقوبات والعمل. تُستخدم لاستخراج النص الأساسي مع ضرورة التحقق من التعديلات اللاحقة من الجريدة الرسمية وديوان التشريع والرأي.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "general",
+      "civil",
+      "criminal",
+      "labor"
+    ]
+  },
+  {
+    "id": "mosd_laws",
+    "name_ar": "قوانين وزارة التنمية الاجتماعية",
+    "name_en": "Ministry of Social Development Laws",
+    "authority": "وزارة التنمية الاجتماعية",
+    "url": "https://mosd.gov.jo/Ar/List/%D8%A7%D9%84%D9%82%D9%88%D8%A7%D9%86%D9%8A%D9%86",
+    "sync_mode": "crawl",
+    "notes": "تتضمن الصفحة الرسمية قانون العقوبات وتعديلاته وتشريعات اجتماعية وجزائية ذات صلة.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "criminal",
+      "general"
+    ]
+  },
+  {
+    "id": "mola_laws",
+    "name_ar": "قوانين وزارة الإدارة المحلية",
+    "name_en": "Ministry of Local Administration Laws",
+    "authority": "وزارة الإدارة المحلية",
+    "url": "https://www.mola.gov.jo/Ar/Pages/%D8%A7%D9%84%D9%82%D9%88%D8%A7%D9%86%D9%8A%D9%86",
+    "sync_mode": "crawl",
+    "notes": "صفحة حكومية تجمع قوانين منها القانون المدني وقانون الملكية العقارية والعمل والإدارة المحلية.",
+    "last_sync_at": null,
+    "last_sync_status": null,
+    "domains": [
+      "civil",
+      "real_estate",
+      "labor",
+      "administrative",
+      "general"
+    ]
+  }
+]

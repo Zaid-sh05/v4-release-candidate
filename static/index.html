@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#081512">
+  <title>قانوني | Qanoni</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/static/styles.css?v=34">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" aria-label="Primary navigation">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 3v18M6 6h12M7.5 6 4 13h7L7.5 6Zm9 0L13 13h7l-3.5-7ZM8 18h8"/></svg>
+      </div>
+      <div><strong>قانوني</strong><span>Qanoni</span></div>
+    </div>
+
+    <button class="new-chat" id="newChatBtn" type="button">
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      <span data-i18n="newChat">محادثة جديدة</span>
+    </button>
+
+    <nav class="nav-list">
+      <button class="nav-btn active" data-view="chat" type="button">
+        <svg viewBox="0 0 24 24"><path d="M5 5h14v11H9l-4 3V5Z"/></svg><span data-i18n="assistant">المساعد</span>
+      </button>
+      <button class="nav-btn" data-view="sources" type="button">
+        <svg viewBox="0 0 24 24"><path d="M6 4h12v16H6zM9 8h6M9 12h6M9 16h4"/></svg><span data-i18n="sources">المصادر الرسمية</span>
+      </button>
+      <button class="nav-btn" data-view="engines" type="button">
+        <svg viewBox="0 0 24 24"><path d="M8 6h8M8 12h8M8 18h8M5 6h.01M5 12h.01M5 18h.01"/></svg><span data-i18n="engines">محركات MCP</span>
+      </button>
+      <button class="nav-btn" data-view="settings" type="button">
+        <svg viewBox="0 0 24 24"><path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm0-6v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/></svg><span data-i18n="settings">الإعدادات</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="grounded-badge">
+        <span class="status-dot"></span>
+        <div><strong>Official-source grounded</strong><span data-i18n="traceable">إجابات قابلة للتتبع</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main-panel">
+    <header class="topbar">
+      <div class="mobile-brand"><strong>قانوني</strong><span>Qanoni</span></div>
+      <div class="top-actions">
+        <div class="system-pill" id="systemPill"><span class="status-dot"></span><span data-i18n="checking">فحص النظام</span></div>
+        <button class="language-btn" id="languageBtn" type="button"><span id="languageText">EN</span></button>
+      </div>
+    </header>
+
+    <section class="view active chat-view" id="chatView">
+      <div class="chat-scroll" id="chatScroll">
+        <div class="hero">
+          <div class="hero-copy">
+            <span class="eyebrow" data-i18n="pilot">Jordan Legal AI Pilot</span>
+            <h1 data-i18n="ask">اسأل قانوني</h1>
+            <p data-i18n="subtitle">احكي سؤالك بطريقتك العادية. قانوني يحدد المجال القانوني، يبحث في المصادر الرسمية، ويعرض لك أساس الإجابة بوضوح.</p>
+          </div>
+          <label class="route-select">
+            <span data-i18n="routing">التوجيه القانوني</span>
+            <select id="domainSelect"><option value="">تلقائي</option></select>
+          </label>
+        </div>
+
+        <div class="suggestions" id="suggestions"></div>
+
+        <div class="messages" id="messages">
+          <article class="message assistant">
+            <div class="avatar" aria-hidden="true"><span>ق</span></div>
+            <div class="bubble">
+              <strong data-i18n="welcomeTitle">أهلاً، أنا قانوني.</strong>
+              <p data-i18n="welcomeText">اكتب الحالة كما حصلت معك. أقدر أساعدك في السير والعمل والمدني والجزائي والأحوال الشخصية والشركات والجرائم الإلكترونية وحماية البيانات وإجراءات المحاكم، مع إظهار المصادر الرسمية المستخدمة.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div class="composer-area">
+        <div class="route-summary" id="routeSummary" hidden></div>
+        <form class="composer" id="chatForm">
+          <textarea id="messageInput" rows="1" maxlength="12000" data-i18n-placeholder="placeholder" placeholder="اكتب سؤالك هنا..."></textarea>
+          <button class="send-btn" id="sendBtn" type="submit" aria-label="Send">
+            <svg viewBox="0 0 24 24"><path d="m5 12 14-7-5 14-2.2-5.8L5 12Zm6.8 1.2L19 5"/></svg>
+          </button>
+        </form>
+        <div class="legal-note" data-i18n="disclaimerShort">معلومات قانونية عامة موثقة، ولا تغني عن الاستشارة القانونية المتخصصة.</div>
+      </div>
+    </section>
+
+    <section class="view page-view" id="sourcesView">
+      <div class="page-scroll">
+        <div class="page-head">
+          <div><span class="eyebrow">Official Jordanian Sources</span><h2 data-i18n="sourcesTitle">المصادر والتغطية القانونية</h2><p data-i18n="sourcesDesc">يعرض قانوني حالة القوانين الأساسية ومصادر المزامنة الحكومية. لا يعتبر القانون مكتمل التغطية إلا إذا كان النص القانوني نفسه موجوداً، وليس مجرد صفحة تشير إليه.</p></div>
+          <button class="secondary-btn" id="refreshSourcesBtn" type="button" data-i18n="refresh">تحديث</button>
+        </div>
+        <div class="coverage-grid" id="coverageGrid"></div>
+        <div class="section-label"><h3 data-i18n="registry">سجل المصادر الرسمية</h3></div>
+        <div class="source-grid" id="sourceGrid"></div>
+      </div>
+    </section>
+
+    <section class="view page-view" id="enginesView">
+      <div class="page-scroll">
+        <div class="page-head"><div><span class="eyebrow">Model Context Protocol</span><h2 data-i18n="enginesTitle">المحركات القانونية المنفصلة</h2><p data-i18n="enginesDesc">كل مجال قانوني له خادم MCP مستقل بأدوات بحث النص الرسمي، استرجاع المادة، وإظهار المصادر. المستخدم العادي لا يحتاج التعامل مع هذه التفاصيل.</p></div></div>
+        <div class="engine-grid" id="engineGrid"></div>
+      </div>
+    </section>
+
+    <section class="view page-view" id="settingsView">
+      <div class="page-scroll">
+        <div class="page-head"><div><span class="eyebrow">Pilot Health</span><h2 data-i18n="settingsTitle">حالة النظام</h2><p data-i18n="settingsDesc">هذه الصفحة مخصصة للتشغيل والتجربة. مفاتيح الخدمات تبقى في ملف .env في الخادم فقط.</p></div></div>
+        <div class="settings-grid" id="settingsGrid"></div>
+      </div>
+    </section>
+  </main>
+
+  <aside class="evidence-rail">
+    <div class="evidence-head"><strong data-i18n="evidence">المصادر المستخدمة</strong><span data-i18n="evidenceDesc">مصادر آخر إجابة قانونية</span></div>
+    <div class="evidence-list" id="evidenceList"><div class="empty-evidence" data-i18n="noEvidence">عند طرح سؤال قانوني ستظهر هنا المصادر الرسمية التي استندت إليها الإجابة.</div></div>
+    <div class="corpus-card"><span data-i18n="corpus">المخزون القانوني النظيف</span><strong id="corpusCount">—</strong><small data-i18n="chunks">مقطع قانوني قابل للبحث</small></div>
+  </aside>
+</div>
+
+<nav class="mobile-nav">
+  <button class="active" data-view="chat"><svg viewBox="0 0 24 24"><path d="M5 5h14v11H9l-4 3V5Z"/></svg><span data-i18n="assistant">المساعد</span></button>
+  <button data-view="sources"><svg viewBox="0 0 24 24"><path d="M6 4h12v16H6zM9 8h6M9 12h6"/></svg><span data-i18n="sourcesShort">المصادر</span></button>
+  <button data-view="engines"><svg viewBox="0 0 24 24"><path d="M8 6h8M8 12h8M8 18h8"/></svg><span>MCP</span></button>
+  <button data-view="settings"><svg viewBox="0 0 24 24"><path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/></svg><span data-i18n="settings">الإعدادات</span></button>
+</nav>
+<div class="toast" id="toast"></div>
+<script src="/static/app.js?v=34" defer></script>
+</body>
+</html>
