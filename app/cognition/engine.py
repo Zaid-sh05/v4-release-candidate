@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 
+from .case_graph import build_case_graph
 from .clarification import choose_questions
+from .decision_gate import decide_next_action
 from .issue_spotter import spot_issues
 from .models import Actor, CaseModel, EvidenceItem, Event, Fact
 from .retrieval_planner import build_retrieval_queries
@@ -16,12 +18,10 @@ EVIDENCE_TERMS = {
     "physical": ["ضبط", "عثر", "وجدت الشرطة", "بصمات", "أداة", "سلاح"],
 }
 
-
 _ARABIC_DIACRITICS_RE = re.compile(r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]")
 
 
 def _normalize_arabic(text: str) -> str:
-    """Normalize common Arabic spelling variants for intent/routing matching only."""
     text = _ARABIC_DIACRITICS_RE.sub("", text.lower())
     return (
         text.replace("أ", "ا")
@@ -57,17 +57,7 @@ def _extract_dates(text: str) -> list[str]:
 
 def _mentions_appeal(text: str) -> bool:
     low = _normalize_arabic(text)
-    return any(
-        term in low
-        for term in [
-            "استئناف",
-            "استانف",
-            "مستانف",
-            "اطعن",
-            "طعن",
-            "تمييز",
-        ]
-    )
+    return any(term in low for term in ["استئناف", "استانف", "مستانف", "اطعن", "طعن", "تمييز"])
 
 
 def _goal(text: str) -> str:
@@ -122,21 +112,29 @@ def _extract_actors(text: str) -> list[Actor]:
                 actors.append(Actor(id=f"a{idx}", label=term, role=role))
                 idx += 1
                 break
-    for name in re.findall(r"(?:قام|قال|ضرب|دخل|أخذ|اخذ)\s+([\u0621-\u064A]{3,})", text):
-        if name not in {a.label for a in actors} and name not in {"الشخص", "الرجل", "المتهم"}:
-            actors.append(Actor(id=f"a{idx}", label=name, role="person"))
-            idx += 1
+
+    # Conservative Arabic proper-name extraction from common narrative positions.
+    name_patterns = [
+        r"(?:قام|قال|ضرب|دخل|أخذ|اخذ|قتل|طعن)\s+([\u0621-\u064A]{3,})",
+        r"(?:جاره|منزل|بيت)\s+([\u0621-\u064A]{3,})",
+    ]
+    for pattern in name_patterns:
+        for name in re.findall(pattern, text):
+            if name not in {a.label for a in actors} and name not in {"الشخص", "الرجل", "المتهم", "المكان", "الباب"}:
+                actors.append(Actor(id=f"a{idx}", label=name, role="person"))
+                idx += 1
     return actors
 
 
 def _categorize_fact(sentence: str) -> str:
+    normalized = _normalize_arabic(sentence)
     if _extract_amounts(sentence):
         return "amount"
-    if any(x in sentence for x in ["كاميرا", "شهود", "الشرطة", "ضبط", "عثر"]):
+    if any(x in normalized for x in ["كاميرا", "شهود", "الشرطه", "ضبط", "عثر"]):
         return "evidence"
-    if any(x in sentence for x in ["قصد", "خطط", "بالغلط", "خطأ", "تعمد"]):
+    if any(x in normalized for x in ["قصد", "خطط", "بالغلط", "خطا", "تعمد", "سبق الاصرار"]):
         return "mental_state"
-    if any(x in sentence for x in ["دخل", "دخول", "كسر", "أخذ", "اخذ", "ضرب", "قتل", "فصلني", "طردني"]):
+    if any(x in normalized for x in ["دخل", "دخول", "كسر", "اخذ", "ضرب", "قتل", "فصلني", "طردني"]):
         return "conduct"
     return "context"
 
@@ -153,26 +151,20 @@ EVENT_TERMS: list[tuple[str, list[str]]] = [
 
 
 def _event_types(sentence: str) -> list[str]:
-    """Return every materially distinct event type mentioned in one sentence.
-
-    Legal fact patterns frequently chain several acts in one Arabic sentence (entry,
-    breaking, taking, flight). V3-style single-label extraction collapsed those acts.
-    V4 keeps each detected act as a separate event node even when punctuation is sparse.
-    """
     normalized = _normalize_arabic(sentence)
     found: list[str] = []
     for event_type, terms in EVENT_TERMS:
-        normalized_terms = [_normalize_arabic(term) for term in terms]
-        if any(term in normalized for term in normalized_terms):
+        if any(_normalize_arabic(term) in normalized for term in terms):
             found.append(event_type)
     return found
 
 
 class CaseCognitionEngine:
-    """Build a structured representation of a user's legal situation before retrieval.
+    """Create a structured case model before legal retrieval.
 
-    The deterministic extractor is deliberately conservative. A future optional LLM
-    adapter may enrich this structure, but the schema and safety rules remain the same.
+    V4 deliberately separates *understanding facts* from *deciding the law*. The
+    deterministic layer is conservative and can later be enriched by a free/local LLM
+    without allowing the model to become the legal source of truth.
     """
 
     def analyze(self, message: str, language: str = "ar") -> CaseModel:
@@ -194,6 +186,9 @@ class CaseCognitionEngine:
                 case.events.append(Event(order=event_order, text=sentence, event_type=event_type))
                 event_order += 1
 
+        # Cognition V2: build a fact graph before legal issue selection.
+        case.graph = build_case_graph(case)
+
         case.hypotheses = spot_issues(case)
         case.domains = list(dict.fromkeys(h.domain for h in case.hypotheses)) or ["general"]
         case.clarifying_questions = choose_questions(case)
@@ -203,4 +198,7 @@ class CaseCognitionEngine:
             case.warnings.append("لم يتم تكوين فرضية قانونية كافية بعد؛ يلزم فهم إضافي قبل البحث المتخصص.")
         if case.hypotheses and all(h.status == "needs_clarification" for h in case.hypotheses):
             case.warnings.append("لا ينبغي إعطاء تكييف نهائي قبل استكمال الوقائع الجوهرية المحددة في أسئلة التوضيح.")
+
+        # The gate decides whether the system should ask, retrieve, or eventually answer.
+        case.decision = decide_next_action(case)
         return case
