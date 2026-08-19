@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime, timezone
+
 from .config import settings
+from .text import normalize_ar
 
 
 def now_iso() -> str:
@@ -54,6 +57,133 @@ class SupabaseStore:
         except Exception as exc:
             self.last_error = f'{type(exc).__name__}: {exc}'[:240]
             return []
+
+    def keyword_search(self, query: str, domains: list[str], limit: int = 8):
+        """Search the cloud corpus without paid embeddings.
+
+        The RPC is backed by PostgreSQL full-text search and returns the same shape as
+        hybrid_search_legal_chunks, so the answer pipeline can use Supabase even when no
+        OpenAI embedding key is configured.
+        """
+        if not self.client:
+            return []
+        try:
+            result = self.client.rpc('keyword_search_legal_chunks', {
+                'query_text': query,
+                'filter_domains': domains,
+                'match_count': min(max(int(limit), 1), 30),
+            }).execute()
+            return result.data or []
+        except Exception as exc:
+            self.last_error = f'{type(exc).__name__}: {exc}'[:240]
+            return []
+
+    def replace_legal_document_chunks(
+        self,
+        *,
+        title: str,
+        authority: str,
+        domain: str,
+        source_url: str,
+        chunks: list[tuple[str | None, str]],
+        source_kind: str = 'official_sync',
+        verified_at: str | None = None,
+    ) -> int:
+        """Promote one accepted official document into the persistent cloud corpus.
+
+        New chunks are upserted before stale chunk IDs are removed, so a transient write
+        error cannot erase the previously searchable version first.
+        """
+        if not self.client:
+            raise RuntimeError('Supabase is not configured')
+        stamp = verified_at or now_iso()
+        doc_id = hashlib.sha1(f'{source_url}|{title}|{domain}'.encode()).hexdigest()
+        document = {
+            'id': doc_id,
+            'title_ar': title,
+            'authority': authority,
+            'domain': domain,
+            'source_url': source_url,
+            'source_kind': source_kind,
+            'verified_at': stamp,
+        }
+        self.client.table('legal_documents').upsert(document).execute()
+
+        rows = []
+        current_ids = set()
+        for article, body in chunks:
+            body = (body or '').strip()
+            if len(body) < 40:
+                continue
+            content_hash = hashlib.sha256(normalize_ar(body).encode()).hexdigest()
+            chunk_id = hashlib.sha1(f'{doc_id}|{article or ""}|{content_hash}'.encode()).hexdigest()
+            current_ids.add(chunk_id)
+            rows.append({
+                'id': chunk_id,
+                'document_id': doc_id,
+                'title': title,
+                'authority': authority,
+                'domain': domain,
+                'source_url': source_url,
+                'article': article,
+                'body': body,
+                'verified_at': stamp,
+                'source_kind': source_kind,
+            })
+        if not rows:
+            raise ValueError('Accepted legal document produced no promotable chunks')
+
+        # Supabase/PostgREST accepts bulk upserts; keep batches bounded for large laws.
+        for start in range(0, len(rows), 150):
+            self.client.table('legal_chunks').upsert(rows[start:start + 150]).execute()
+
+        existing = self.client.table('legal_chunks').select('id').eq('document_id', doc_id).execute().data or []
+        stale = [row.get('id') for row in existing if row.get('id') and row.get('id') not in current_ids]
+        for start in range(0, len(stale), 150):
+            batch = stale[start:start + 150]
+            if batch:
+                self.client.table('legal_chunks').delete().in_('id', batch).execute()
+        return len(rows)
+
+    def get_legal_sync_fingerprint(self, source_url: str) -> str | None:
+        if not self.client:
+            return None
+        rows = (
+            self.client.table('qanoni_legal_sync_fingerprints')
+            .select('fingerprint')
+            .eq('source_url', source_url)
+            .limit(1)
+            .execute().data or []
+        )
+        return rows[0].get('fingerprint') if rows else None
+
+    def upsert_legal_sync_fingerprint(self, *, source_url: str, source_id: str, title: str, domain: str, fingerprint: str, promoted_at: str) -> None:
+        if not self.client:
+            return
+        self.client.table('qanoni_legal_sync_fingerprints').upsert({
+            'source_url': source_url,
+            'source_id': source_id,
+            'title': title,
+            'domain': domain,
+            'fingerprint': fingerprint,
+            'promoted_at': promoted_at,
+        }).execute()
+
+    def log_legal_update_event(self, *, source_id: str, source_url: str, title: str, domain: str, action: str, fingerprint: str, reason: str, details: dict, created_at: str) -> None:
+        if not self.client:
+            return
+        self.client.table('qanoni_legal_update_events').insert({
+            'id': str(uuid.uuid4()),
+            'source_id': source_id,
+            'source_url': source_url,
+            'title': title,
+            'domain': domain,
+            'action': action,
+            'fingerprint': fingerprint,
+            'reason': reason,
+            'details': details or {},
+            'created_at': created_at,
+        }).execute()
 
     # Runtime telemetry / conversation persistence. All methods are best-effort;
     # RuntimeStore falls back to SQLite if any cloud call fails.
