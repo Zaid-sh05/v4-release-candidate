@@ -13,6 +13,9 @@ _SMALLTALK_ONLY = {
 }
 
 _TOKEN_EDGE_RE = re.compile(r"^[\s\.,،؛:!?؟()\[\]{}\"'«»]+|[\s\.,،؛:!?؟()\[\]{}\"'«»]+$")
+_SHORT_WAW_VERB_STEMS = {
+    "اخذ", "كسر", "دخل", "ضرب", "قتل", "سرق", "طعن", "مات",
+}
 
 
 def _canonical_token(token: str) -> str:
@@ -37,10 +40,14 @@ def _token_variants(token: str) -> set[str]:
     Jordanian users frequently attach the conjunction waw to verbs (وأخذ، وانصاب)
     and contract على + ال into عالـ (عالمستشفى). Keep the original token and expose
     a stripped alternative without globally rewriting words that genuinely start with و.
+    Short three-letter verb stems are explicitly allowlisted so a word such as وعده
+    cannot accidentally become عدة and trigger personal-status routing.
     """
     variants = {token}
-    if token.startswith("و") and len(token) > 4:
-        variants.add(token[1:])
+    if token.startswith("و"):
+        stem = token[1:]
+        if len(token) > 4 or stem in _SHORT_WAW_VERB_STEMS:
+            variants.add(stem)
     if token.startswith("عال") and len(token) > 5:
         variants.add(token[3:])
     if token.startswith("وعال") and len(token) > 6:
