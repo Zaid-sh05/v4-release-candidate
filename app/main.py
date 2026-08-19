@@ -1,13 +1,14 @@
 from __future__ import annotations
+import hmac
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query, Header
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.routing import Mount
 from .config import ROOT, settings
 from .models import ChatRequest, ChatResponse, FeedbackRequest
 from .chat_v4 import handle_chat
+from .feedback_review import review_negative_feedback
 from .repository import repository
 from .router import DOMAIN_LABELS
 from .mcp_runtime import build_mcp_servers
@@ -29,6 +30,14 @@ async def lifespan(app:FastAPI)->AsyncIterator[None]:
 app=FastAPI(title='Qanoni | قانوني Pilot API',version=settings.app_version,docs_url='/api/docs',redoc_url=None,lifespan=lifespan)
 app.mount('/static',StaticFiles(directory=STATIC),name='static')
 for domain,mcp_app in MCP_APPS.items(): app.mount(f'/mcp/{domain}',mcp_app)
+
+
+def _require_admin(value:str|None)->None:
+    if not settings.admin_api_key:
+        raise HTTPException(status_code=403,detail='Admin API is disabled.')
+    if not value or not hmac.compare_digest(value,settings.admin_api_key):
+        raise HTTPException(status_code=401,detail='Invalid admin key.')
+
 
 @app.get('/',include_in_schema=False)
 def home(): return FileResponse(STATIC/'index.html')
@@ -59,19 +68,33 @@ def chat(req:ChatRequest): return handle_chat(req)
 @app.post('/api/feedback')
 def feedback(req:FeedbackRequest):
     try:
-        return runtime_store.save_feedback(req.conversation_id,req.rating,req.note)
+        result=runtime_store.save_feedback(req.conversation_id,req.rating,req.note)
     except ValueError as exc:
         raise HTTPException(status_code=400,detail=str(exc)) from exc
+    if req.rating=='not_helpful':
+        try:
+            result['review']=review_negative_feedback(
+                feedback_id=result.get('id'),
+                conversation_id=req.conversation_id,
+                note=req.note,
+            )
+        except Exception:
+            # The original feedback remains durably saved even if automatic review hits
+            # a transient retrieval/storage problem. Never turn a dislike click into 500.
+            result['review']={'status':'needs_review','reason':'automatic_review_unavailable','proposed_answer':None}
+    return result
 
 @app.get('/api/feedback/stats')
-def feedback_stats():
-    return runtime_store.feedback_stats()
+def feedback_stats(): return runtime_store.feedback_stats()
+
+@app.get('/api/admin/feedback/reviews')
+def feedback_reviews(limit:int=50,x_admin_key:str|None=Header(default=None,alias='X-Admin-Key')):
+    _require_admin(x_admin_key)
+    return {'stats':runtime_store.feedback_review_stats(),'reviews':runtime_store.list_feedback_reviews(limit)}
+
 @app.post('/api/admin/sync/{source_id}')
 def sync_one(source_id:str,max_docs:int|None=None,x_admin_key:str|None=Header(default=None,alias='X-Admin-Key')):
-    if not settings.admin_api_key:
-        raise HTTPException(status_code=403,detail='Admin sync is disabled.')
-    if x_admin_key != settings.admin_api_key:
-        raise HTTPException(status_code=401,detail='Invalid admin key.')
+    _require_admin(x_admin_key)
     try: return sync_source(source_id,max_docs)
     except ValueError as exc: raise HTTPException(status_code=400,detail=str(exc)) from exc
     except Exception as exc: raise HTTPException(status_code=502,detail=f'Sync failed: {type(exc).__name__}: {str(exc)[:240]}') from exc
