@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.cognition import CaseCognitionEngine
-from app.router import analyze_query
+from app.routing_guard import apply_case_route, route_query
 
 
 @dataclass
@@ -188,7 +188,10 @@ def main() -> int:
 
     for scenario in SCENARIOS:
         case = engine.analyze(scenario.text)
-        route = analyze_query(scenario.text, "auto", None)
+        # Measure the same route-fusion path used by the live V4 API, not the legacy
+        # lexical router in isolation. This keeps the score aligned with production.
+        route = route_query(scenario.text, "auto", None)
+        route = apply_case_route(route, case, None)
 
         issues = [h.code for h in case.hypotheses]
         events = [e.event_type for e in case.events]
