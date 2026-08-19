@@ -1,6 +1,16 @@
 from .engine import CaseCognitionEngine
 from .conversation import ConversationCaseState
-from .models import CaseModel, Fact, Actor, Event, EvidenceItem, LegalHypothesis, ClarifyingQuestion
+from .models import (
+    Actor,
+    CaseModel,
+    CaseRelation,
+    ClarifyingQuestion,
+    Event,
+    EvidenceItem,
+    Fact,
+    LegalHypothesis,
+    MaterialDecision,
+)
 
 __all__ = [
     "CaseCognitionEngine",
@@ -10,6 +20,8 @@ __all__ = [
     "Actor",
     "Event",
     "EvidenceItem",
+    "CaseRelation",
     "LegalHypothesis",
     "ClarifyingQuestion",
+    "MaterialDecision",
 ]
