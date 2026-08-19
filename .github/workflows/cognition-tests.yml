@@ -1,4 +1,4 @@
-name: Cognition Tests
+name: Qanoni V4 Tests
 
 on:
   push:
@@ -8,14 +8,43 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      APP_ENV: test
+      RUNTIME_STORE: sqlite
+      OPENAI_API_KEY: ""
+      SUPABASE_URL: ""
+      SUPABASE_SERVICE_ROLE_KEY: ""
+      ADMIN_API_KEY: ""
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install test dependencies
-        run: python -m pip install --upgrade pip && pip install -r requirements-dev.txt
-      - name: Run cognition regression suite
-        run: pytest -q
+          cache: pip
+
+      - name: Install project and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run cognition regression tests
+        run: pytest -q tests/test_cognition.py tests/test_conversation_cognition.py
+
+      - name: Run V3 regression tests
+        run: |
+          pytest -q \
+            tests/test_repository.py \
+            tests/test_router.py \
+            tests/test_no_emoji.py \
+            tests/test_ui_invariants.py \
+            tests/test_v34_adaptive.py \
+            tests/test_v35_context.py \
+            tests/test_pilot_acceptance.py
+
+      - name: Run API smoke test
+        run: pytest -q tests/test_api_smoke.py
