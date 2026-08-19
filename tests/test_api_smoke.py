@@ -19,11 +19,13 @@ def test_api_smoke():
 
         cases = [
             ('مرحبا', 'ar', ['conversation']),
+            ('هلو', 'ar', ['conversation']),
             ('فصلني صاحب العمل بدون إنذار', 'ar', ['labor']),
             ('قطعت إشارة حمراء شو العقوبة؟', 'ar', ['traffic']),
             ('عقوبة الزنا', 'ar', ['criminal']),
             ('واحد ببتزني على واتساب', 'ar', ['cyber', 'criminal']),
             ('بدي أستأنف حكم بقضية سرقة', 'ar', ['procedure', 'criminal']),
+            ('ما هي اجراءات الطلاق؟', 'ar', ['personal_status']),
             ('Hello', 'en', ['conversation']),
         ]
 
@@ -31,12 +33,21 @@ def test_api_smoke():
             r = c.post('/api/chat', json={'message': msg, 'language': lang})
             assert r.status_code == 200, msg
             data = r.json()
-            assert data['route']['domains'][:len(expected)] == expected, (msg, data['route']['domains'])
+            route_domains = data['route']['domains']
+            assert route_domains[:len(expected)] == expected, (msg, route_domains)
             assert not EMOJI.search(data['answer']), data['answer']
 
+            if expected == ['conversation']:
+                assert data['sources'] == [], (msg, data['sources'])
+
             for src in data['sources']:
+                assert src['domain'] in route_domains, (msg, src['domain'], route_domains)
                 assert '%D8' not in src['title'] and '%D9' not in src['title'], src['title']
                 assert not re.fullmatch(r'[0-9a-f-]{30,}(?:\\.pdf)?', src['title'], re.I), src['title']
+
+            if 'طلاق' in msg:
+                assert 'تزويد طالبي الخدمة' not in data['answer'], data['answer']
+                assert 'العمال الأردنيين' not in data['answer'], data['answer']
 
 
 def main():
