@@ -156,10 +156,13 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
         _set_primary(route, "procedure", ["criminal"], 0.94)
     elif traffic:
         extras = []
-        if injury or death:
-            extras.append("civil")
+        # In a fatal traffic scenario, the criminal dimension is material before
+        # the secondary civil-compensation dimension. Injury-only traffic cases
+        # remain traffic + civil.
         if death:
             extras.append("criminal")
+        if injury or death:
+            extras.append("civil")
         _set_primary(route, "traffic", extras, 0.91)
     elif cyber:
         _set_primary(route, "cyber", ["criminal"] if threat else [], 0.91)
