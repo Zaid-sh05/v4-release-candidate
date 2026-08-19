@@ -17,8 +17,24 @@ EVIDENCE_TERMS = {
 }
 
 
+_ARABIC_DIACRITICS_RE = re.compile(r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]")
+
+
+def _normalize_arabic(text: str) -> str:
+    """Normalize common Arabic spelling variants for intent/routing matching only."""
+    text = _ARABIC_DIACRITICS_RE.sub("", text.lower())
+    return (
+        text.replace("أ", "ا")
+        .replace("إ", "ا")
+        .replace("آ", "ا")
+        .replace("ٱ", "ا")
+        .replace("ى", "ي")
+        .replace("ؤ", "و")
+    )
+
+
 def _sentences(text: str) -> list[str]:
-    parts = re.split(r"[\n\r.!؟?؛]+|،\s+(?=[ثمفبعدلاحق])", text)
+    parts = re.split(r"[\n\r.!؟?؛]+", text)
     return [p.strip(" ،.\t") for p in parts if p.strip(" ،.\t")]
 
 
@@ -39,26 +55,41 @@ def _extract_dates(text: str) -> list[str]:
     return out
 
 
+def _mentions_appeal(text: str) -> bool:
+    low = _normalize_arabic(text)
+    return any(
+        term in low
+        for term in [
+            "استئناف",
+            "استانف",
+            "مستانف",
+            "اطعن",
+            "طعن",
+            "تمييز",
+        ]
+    )
+
+
 def _goal(text: str) -> str:
-    low = text.lower()
-    if any(x in low for x in ["شو العقوبة", "ما العقوبة", "ما هي العقوبة", "عقوب"]):
+    low = _normalize_arabic(text)
+    if any(x in low for x in ["شو العقوبه", "ما العقوبه", "ما هي العقوبه", "عقوب"]):
         return "penalty"
     if any(x in low for x in ["شو حقوقي", "ما حقوقي", "حقوقي", "استحق"]):
         return "rights"
-    if any(x in low for x in ["استئناف", "اطعن", "طعن", "تمييز"]):
+    if _mentions_appeal(text):
         return "appeal"
-    if any(x in low for x in ["شو اعمل", "شو أعمل", "كيف اقدم", "كيف أقدم", "الإجراء", "الاجراء"]):
+    if any(x in low for x in ["شو اعمل", "كيف اقدم", "الاجراء"]):
         return "procedure"
     return "legal_analysis"
 
 
 def _procedural_posture(text: str) -> str:
-    low = text.lower()
-    if any(x in low for x in ["صدر الحكم", "حكمت المحكمة", "الحكم كان", "استئناف", "تمييز"]):
+    low = _normalize_arabic(text)
+    if any(x in low for x in ["صدر الحكم", "حكمت المحكمه", "الحكم كان"]) or _mentions_appeal(text):
         return "post_judgment"
-    if any(x in low for x in ["المدعي العام", "النيابة", "الشرطة حققت", "تم توقيف", "موقوف"]):
+    if any(x in low for x in ["المدعي العام", "النيابه", "الشرطه حققت", "تم توقيف", "موقوف"]):
         return "investigation"
-    if any(x in low for x in ["رفعت دعوى", "المحكمة", "جلسة", "القضية"]):
+    if any(x in low for x in ["رفعت دعوي", "المحكمه", "جلسه", "القضيه"]):
         return "litigation"
     return "pre_case"
 
@@ -91,7 +122,6 @@ def _extract_actors(text: str) -> list[Actor]:
                 actors.append(Actor(id=f"a{idx}", label=term, role=role))
                 idx += 1
                 break
-    # Named Arabic persons are useful in long scenarios even when their role is unknown.
     for name in re.findall(r"(?:قام|قال|ضرب|دخل|أخذ|اخذ)\s+([\u0621-\u064A]{3,})", text):
         if name not in {a.label for a in actors} and name not in {"الشخص", "الرجل", "المتهم"}:
             actors.append(Actor(id=f"a{idx}", label=name, role="person"))
@@ -106,25 +136,36 @@ def _categorize_fact(sentence: str) -> str:
         return "evidence"
     if any(x in sentence for x in ["قصد", "خطط", "بالغلط", "خطأ", "تعمد"]):
         return "mental_state"
-    if any(x in sentence for x in ["دخل", "كسر", "أخذ", "اخذ", "ضرب", "قتل", "فصلني", "طردني"]):
+    if any(x in sentence for x in ["دخل", "دخول", "كسر", "أخذ", "اخذ", "ضرب", "قتل", "فصلني", "طردني"]):
         return "conduct"
     return "context"
 
 
-def _event_type(sentence: str) -> str:
-    mapping = [
-        ("entry", ["دخل", "تسلل"]),
-        ("breaking", ["كسر", "خلع"]),
-        ("taking", ["أخذ", "اخذ", "سرق"]),
-        ("violence", ["ضرب", "طعن", "أطلق", "اطلق"]),
-        ("death", ["قتل", "توفي", "توفى", "مات"]),
-        ("termination", ["فصلني", "طردني", "أنهى عقد", "انهى عقد"]),
-        ("judgment", ["صدر الحكم", "حكمت المحكمة"]),
-    ]
-    for event_type, terms in mapping:
-        if any(t in sentence for t in terms):
-            return event_type
-    return "context"
+EVENT_TERMS: list[tuple[str, list[str]]] = [
+    ("entry", ["دخل", "دخول", "تسلل"]),
+    ("breaking", ["كسر", "خلع"]),
+    ("taking", ["أخذ", "اخذ", "سرق"]),
+    ("violence", ["ضرب", "طعن", "أطلق", "اطلق"]),
+    ("death", ["قتل", "توفي", "توفى", "مات"]),
+    ("termination", ["فصلني", "طردني", "أنهى عقد", "انهى عقد"]),
+    ("judgment", ["صدر الحكم", "حكمت المحكمة"]),
+]
+
+
+def _event_types(sentence: str) -> list[str]:
+    """Return every materially distinct event type mentioned in one sentence.
+
+    Legal fact patterns frequently chain several acts in one Arabic sentence (entry,
+    breaking, taking, flight). V3-style single-label extraction collapsed those acts.
+    V4 keeps each detected act as a separate event node even when punctuation is sparse.
+    """
+    normalized = _normalize_arabic(sentence)
+    found: list[str] = []
+    for event_type, terms in EVENT_TERMS:
+        normalized_terms = [_normalize_arabic(term) for term in terms]
+        if any(term in normalized for term in normalized_terms):
+            found.append(event_type)
+    return found
 
 
 class CaseCognitionEngine:
@@ -146,10 +187,12 @@ class CaseCognitionEngine:
         case.dates = _extract_dates(message)
         case.evidence = _extract_evidence(message)
 
-        for index, sentence in enumerate(_sentences(message), start=1):
+        event_order = 1
+        for sentence in _sentences(message):
             case.facts.append(Fact(text=sentence, category=_categorize_fact(sentence)))
-            if _event_type(sentence) != "context":
-                case.events.append(Event(order=index, text=sentence, event_type=_event_type(sentence)))
+            for event_type in _event_types(sentence):
+                case.events.append(Event(order=event_order, text=sentence, event_type=event_type))
+                event_order += 1
 
         case.hypotheses = spot_issues(case)
         case.domains = list(dict.fromkeys(h.domain for h in case.hypotheses)) or ["general"]
