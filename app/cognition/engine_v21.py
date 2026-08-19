@@ -52,13 +52,14 @@ def _seed_deterministic_signals(case) -> None:
         "بالغلط", "بالخطأ", "بالخطا", "خطأ", "خطا", "دون قصد", "بدون قصد",
         "غير مقصود", "ما كنت أقصد", "ما كنت اقصد", "لم أقصد", "لم اقصد",
         "دون أن أتعمد", "دون ان اتعمد", "لم أتعمد", "لم اتعمد",
+        "accidentally", "by accident", "did not mean", "didn't mean",
     ):
         _add_signal(case, "intent.accidental", "وصف المستخدم الواقعة بأنها غير مقصودة")
 
-    if _contains(text, "دفاع عن نفسي", "دفاعاً عن نفسي", "دفاعا عن نفسي", "دفاع شرعي", "هاجمني"):
+    if _contains(text, "دفاع عن نفسي", "دفاعاً عن نفسي", "دفاعا عن نفسي", "دفاع شرعي", "هاجمني", "self defense", "self-defense"):
         _add_signal(case, "intent.self_defense_claim", "ذكر المستخدم ادعاء دفاع عن النفس")
 
-    if case.user_goal == "appeal" or _contains(text, "استئناف", "استأنف", "استانف", "أستأنف", "اطعن", "طعن", "تمييز"):
+    if case.user_goal == "appeal" or _contains(text, "استئناف", "استأنف", "استانف", "أستأنف", "اطعن", "طعن", "تمييز", "appeal", "cassation"):
         _add_signal(case, "goal.appeal", "ذكر المستخدم الاستئناف أو الطعن")
 
     if case.user_goal == "penalty":
@@ -68,34 +69,34 @@ def _seed_deterministic_signals(case) -> None:
     elif case.user_goal == "procedure":
         _add_signal(case, "goal.procedure", "سؤال المستخدم عن إجراء", "medium")
 
-    if _contains(text, "فصلني", "طردني", "انهاء عقد", "إنهاء عقد", "سبب الفصل"):
+    if _contains(text, "فصلني", "طردني", "انهاء عقد", "إنهاء عقد", "سبب الفصل", "fired", "dismissed", "terminated", "let me go from my job"):
         _add_signal(case, "employment.termination", "ذكر المستخدم إنهاء علاقة العمل")
 
-    if _contains(text, "سرق", "سرقة", "أخذ", "اخذ", "استولى"):
+    if _contains(text, "سرق", "سرقة", "أخذ", "اخذ", "استولى", "took", "stole", "stolen"):
         _add_signal(case, "property.taking", "ذكر المستخدم أخذ أو استيلاء على مال")
 
-    if _contains(text, "توفي", "توفى", "مات", "وفاة", "قتل"):
+    if _contains(text, "توفي", "توفى", "مات", "وفاة", "قتل", "died", "death", "killed"):
         _add_signal(case, "event.death", "ذكر المستخدم وفاة أو قتل")
 
-    if _contains(text, "هدد", "هددني", "يهددني", "بهددني", "بتهددني", "تهديد", "ابتزاز", "ابتزني", "ببتزني", "يبتزني"):
+    if _contains(text, "هدد", "هددني", "يهددني", "بهددني", "بتهددني", "تهديد", "ابتزاز", "ابتزني", "ببتزني", "يبتزني", "threatened", "threat", "blackmail", "extortion"):
         _add_signal(case, "event.threat", "ذكر المستخدم تهديداً أو ابتزازاً")
 
-    if _contains(text, "اصابة", "إصابة", "انصاب", "اصيب", "أصيب", "جرح", "المستشفى"):
+    if _contains(text, "اصابة", "إصابة", "انصاب", "اصيب", "أصيب", "جرح", "المستشفى", "injured", "injury", "hospital"):
         _add_signal(case, "event.injury", "ذكر المستخدم إصابة")
 
 
 _EVENT_CUES: dict[str, tuple[str, ...]] = {
-    "entry": ("دخل", "دخول", "تسلل", "اقتحم"),
-    "breaking": ("كسر", "خلع", "حطم"),
-    "taking": ("أخذ", "اخذ", "سرق", "استولى", "استيلاء"),
-    "violence": ("ضرب", "طعن", "اعتدى", "هاجم", "اطلق", "أطلق"),
-    "death": ("توفي", "توفى", "مات", "قتل", "وفاة"),
-    "injury": ("اصيب", "أصيب", "انصاب", "جرح", "اصابة", "إصابة"),
-    "threat": ("هدد", "تهديد", "ابتزاز", "ابتز"),
-    "termination": ("فصل", "طرد", "انهى عقد العمل", "أنهى عقد العمل", "فصلني"),
-    "judgment": ("صدر الحكم", "حكمت المحكمة", "الحكم"),
-    "payment": ("دفع", "دفعت", "حول", "عربون", "مبلغ", "دينار"),
-    "communication": ("قال", "قالت", "بحكي", "رسالة", "واتساب", "ابلغ", "أبلغ"),
+    "entry": ("دخل", "دخول", "تسلل", "اقتحم", "entered", "entry", "broke in"),
+    "breaking": ("كسر", "خلع", "حطم", "broke", "breaking", "forced"),
+    "taking": ("أخذ", "اخذ", "سرق", "استولى", "استيلاء", "took", "stole", "stolen", "taking"),
+    "violence": ("ضرب", "طعن", "اعتدى", "هاجم", "اطلق", "أطلق", "hit", "stabbed", "assaulted", "attacked", "shot"),
+    "death": ("توفي", "توفى", "مات", "قتل", "وفاة", "died", "death", "killed"),
+    "injury": ("اصيب", "أصيب", "انصاب", "جرح", "اصابة", "إصابة", "injured", "injury", "hurt"),
+    "threat": ("هدد", "تهديد", "ابتزاز", "ابتز", "threatened", "threat", "blackmail", "extortion"),
+    "termination": ("فصل", "طرد", "انهى عقد العمل", "أنهى عقد العمل", "فصلني", "fired", "dismissed", "terminated", "let me go"),
+    "judgment": ("صدر الحكم", "حكمت المحكمة", "الحكم", "judgment", "court ruled", "verdict"),
+    "payment": ("دفع", "دفعت", "حول", "عربون", "مبلغ", "دينار", "paid", "payment", "deposit", "transferred"),
+    "communication": ("قال", "قالت", "بحكي", "رسالة", "واتساب", "ابلغ", "أبلغ", "said", "told", "message", "whatsapp"),
 }
 
 
@@ -131,6 +132,7 @@ def _mark_disputed_facts(case) -> bool:
         "الشرطة بتقول", "الشرطة تقول", "بتقول إني", "بتقول اني", "يقول إني", "يقول اني",
         "يدعي", "يدّعي", "بحكي إنه", "بحكي انه", "أنا بنكر", "انا بنكر", "أنكر", "انكر",
         "ينكر", "حسب كلام", "حسب قوله", "متهمني", "اتهمني",
+        "police say", "police says", "alleged", "alleges", "i deny", "denies",
     )
     changed = False
     for fact in case.facts:
