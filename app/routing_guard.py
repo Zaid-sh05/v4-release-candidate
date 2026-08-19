@@ -21,13 +21,31 @@ def _canonical_token(token: str) -> str:
     if not token:
         return ""
 
-    # Strip only safe Arabic article/clitic combinations. Never strip a bare و/ب/ف,
-    # because words such as واتساب would otherwise be damaged.
+    # Strip only safe Arabic article/clitic combinations. Never strip a bare و/ب/ف
+    # here because words such as واتساب would otherwise be damaged. Bare conjunctions
+    # are handled as alternate matching variants instead of mutating the source token.
     for prefix in ("وال", "فال", "بال", "كال", "لل", "ال"):
         if token.startswith(prefix) and len(token) > len(prefix) + 2:
             token = token[len(prefix):]
             break
     return token
+
+
+def _token_variants(token: str) -> set[str]:
+    """Return conservative spoken-Arabic clitic variants for matching only.
+
+    Jordanian users frequently attach the conjunction waw to verbs (وأخذ، وانصاب)
+    and contract على + ال into عالـ (عالمستشفى). Keep the original token and expose
+    a stripped alternative without globally rewriting words that genuinely start with و.
+    """
+    variants = {token}
+    if token.startswith("و") and len(token) > 4:
+        variants.add(token[1:])
+    if token.startswith("عال") and len(token) > 5:
+        variants.add(token[3:])
+    if token.startswith("وعال") and len(token) > 6:
+        variants.add(token[4:])
+    return {v for v in variants if v}
 
 
 def _tokens(text: str) -> list[str]:
@@ -41,17 +59,21 @@ def _phrase_tokens(text: str) -> list[str]:
 def _has(text: str, *phrases: str) -> bool:
     """Token/phrase-aware Arabic matching; never raw substring matching."""
     words = _tokens(text)
+    variants = [_token_variants(word) for word in words]
     normalized = " ".join(words)
     for phrase in phrases:
         pwords = _phrase_tokens(phrase)
         if not pwords:
             continue
         if len(pwords) == 1:
-            if pwords[0] in words:
+            if any(pwords[0] in options for options in variants):
                 return True
         else:
             width = len(pwords)
-            if any(words[i:i + width] == pwords for i in range(len(words) - width + 1)):
+            if any(
+                all(pwords[offset] in variants[i + offset] for offset in range(width))
+                for i in range(len(words) - width + 1)
+            ):
                 return True
         p = " ".join(pwords)
         # English/mixed phrases can safely use word-bounded normalized text here.
