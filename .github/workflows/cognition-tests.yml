@@ -37,7 +37,7 @@ jobs:
         run: python -c "import app; import app.cognition; print('Qanoni app import OK')"
 
       - name: Run cognition regression tests
-        run: python -m pytest -q tests/test_cognition.py tests/test_conversation_cognition.py
+        run: python -m pytest -q tests/test_cognition.py tests/test_conversation_cognition.py tests/test_cognition_v2.py
 
       - name: Run V3 regression tests
         run: |
