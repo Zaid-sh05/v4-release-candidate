@@ -206,8 +206,16 @@ def main() -> int:
             ("signals", signals, scenario.expected_signal_codes),
         ]:
             if expected:
-                ok, missing = _contains_all(actual, expected)
-                checks.append((label, ok, "missing=" + str(missing) if missing else "OK"))
+                if label == "domains":
+                    # Domain order matters: the first item is the primary legal route.
+                    # Do not count ['personal_status', 'criminal'] as a pass for a case
+                    # whose expected primary route is criminal.
+                    ok = actual[:len(expected)] == expected
+                    detail = "OK" if ok else f"expected_prefix={expected}, actual={actual}"
+                else:
+                    ok, missing = _contains_all(actual, expected)
+                    detail = "missing=" + str(missing) if missing else "OK"
+                checks.append((label, ok, detail))
 
         if scenario.expected_decision:
             actual_decision = case.decision.action if case.decision else None
