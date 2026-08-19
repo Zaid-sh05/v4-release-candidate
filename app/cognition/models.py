@@ -4,6 +4,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Literal
 
 Confidence = Literal["low", "medium", "high"]
+DecisionAction = Literal["clarify", "retrieve", "answer"]
 
 
 @dataclass
@@ -42,6 +43,17 @@ class EvidenceItem:
 
 
 @dataclass
+class CaseRelation:
+    subject: str
+    predicate: str
+    object: str
+    source_text: str
+    confidence: Confidence = "medium"
+    inferred: bool = False
+    disputed: bool = False
+
+
+@dataclass
 class LegalHypothesis:
     code: str
     label_ar: str
@@ -64,6 +76,15 @@ class ClarifyingQuestion:
 
 
 @dataclass
+class MaterialDecision:
+    action: DecisionAction
+    reason: str
+    blockers: list[str] = field(default_factory=list)
+    question_ids: list[str] = field(default_factory=list)
+    safe_to_answer: bool = False
+
+
+@dataclass
 class CaseModel:
     raw_message: str
     language: str = "ar"
@@ -72,6 +93,7 @@ class CaseModel:
     facts: list[Fact] = field(default_factory=list)
     events: list[Event] = field(default_factory=list)
     evidence: list[EvidenceItem] = field(default_factory=list)
+    graph: list[CaseRelation] = field(default_factory=list)
     amounts: list[str] = field(default_factory=list)
     dates: list[str] = field(default_factory=list)
     procedural_posture: str = "pre_case"
@@ -79,6 +101,7 @@ class CaseModel:
     hypotheses: list[LegalHypothesis] = field(default_factory=list)
     clarifying_questions: list[ClarifyingQuestion] = field(default_factory=list)
     retrieval_queries: list[str] = field(default_factory=list)
+    decision: MaterialDecision | None = None
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
