@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from .models import RouteResult
 from .router import DOMAIN_LABELS, analyze_query
 from .text import normalize_ar
@@ -10,9 +12,30 @@ _SMALLTALK_ONLY = {
     "صباح الخير", "مساء الخير", "hi", "hello", "hey",
 }
 
+_TOKEN_EDGE_RE = re.compile(r"^[\s\.,،؛:!?؟()\[\]{}\"'«»]+|[\s\.,،؛:!?؟()\[\]{}\"'«»]+$")
+
+
+def _canonical_token(token: str) -> str:
+    """Normalize one token without creating Arabic substring false positives."""
+    token = _TOKEN_EDGE_RE.sub("", normalize_ar(token or "")).strip()
+    if not token:
+        return ""
+
+    # Strip only safe Arabic article/clitic combinations. Never strip a bare و/ب/ف,
+    # because words such as واتساب would otherwise be damaged.
+    for prefix in ("وال", "فال", "بال", "كال", "لل", "ال"):
+        if token.startswith(prefix) and len(token) > len(prefix) + 2:
+            token = token[len(prefix):]
+            break
+    return token
+
 
 def _tokens(text: str) -> list[str]:
-    return [x for x in normalize_ar(text).split() if x]
+    return [tok for raw in normalize_ar(text).split() if (tok := _canonical_token(raw))]
+
+
+def _phrase_tokens(text: str) -> list[str]:
+    return _tokens(text)
 
 
 def _has(text: str, *phrases: str) -> bool:
@@ -20,10 +43,9 @@ def _has(text: str, *phrases: str) -> bool:
     words = _tokens(text)
     normalized = " ".join(words)
     for phrase in phrases:
-        p = normalize_ar(phrase)
-        if not p:
+        pwords = _phrase_tokens(phrase)
+        if not pwords:
             continue
-        pwords = p.split()
         if len(pwords) == 1:
             if pwords[0] in words:
                 return True
@@ -31,6 +53,7 @@ def _has(text: str, *phrases: str) -> bool:
             width = len(pwords)
             if any(words[i:i + width] == pwords for i in range(len(words) - width + 1)):
                 return True
+        p = " ".join(pwords)
         # English/mixed phrases can safely use word-bounded normalized text here.
         if all(ord(ch) < 128 for ch in p) and f" {p} " in f" {normalized} ":
             return True
