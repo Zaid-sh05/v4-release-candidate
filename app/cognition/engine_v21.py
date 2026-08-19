@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from .clarification import choose_questions
 from .decision_gate import decide_next_action
 from .engine import CaseCognitionEngine as BaseCaseCognitionEngine
@@ -142,6 +144,34 @@ def _mark_disputed_facts(case) -> bool:
     return changed
 
 
+_RAW_EXPLICIT_GOAL_CUES = (
+    "عقوبة", "عقوبه", "غرامة", "غرامه", "حبس", "سجن",
+    "حقوقي", "حقوق", "حقي", "استحق", "تعويض",
+    "استئناف", "استأنف", "استانف", "طعن", "تمييز",
+    "شكوى", "اشتكي", "أشتكي", "اجراءات", "إجراءات",
+    "شو اعمل", "شو أعمل", "ماذا افعل", "ماذا أفعل", "كيف",
+    "ما هي", "كم", "هل", "متى", "بدي",
+    "what", "how", "rights", "penalty", "fine", "appeal",
+    "complaint", "procedure", "deadline", "compensation",
+)
+
+
+def _is_raw_short_ambiguous(message: str) -> bool:
+    """Classify a short bare factual utterance before optional LLM enrichment.
+
+    This deliberately depends only on the user's original message. The LLM may add
+    structure, but it must not turn a bare phrase such as "أخذ المصاري ومشي" into a
+    sufficiently complete case for retrieval when the user never stated a legal goal.
+    """
+    normalized = _norm(message)
+    tokens = re.findall(r"[A-Za-z0-9_\u0600-\u06ff]+", normalized)
+    if not tokens or len(tokens) > 6:
+        return False
+    if _contains(message, *_RAW_EXPLICIT_GOAL_CUES):
+        return False
+    return True
+
+
 def _is_short_ambiguous(case) -> bool:
     tokens = [token for token in case.raw_message.replace("؟", " ").replace("?", " ").split() if token]
     if case.user_goal != "legal_analysis" or len(tokens) > 6:
@@ -155,9 +185,12 @@ def _is_short_ambiguous(case) -> bool:
 
 
 class CaseCognitionEngine(BaseCaseCognitionEngine):
-    """Cognition V2.2 wrapper with deterministic semantics and LLM event validation."""
+    """Cognition V2.4 wrapper with deterministic semantics and LLM safety validation."""
 
     def analyze(self, message: str, language: str = "ar"):
+        # Compute this before LLM enrichment so model-added structure cannot erase
+        # ambiguity that was present in the user's original utterance.
+        raw_short_ambiguous = _is_raw_short_ambiguous(message)
         case = super().analyze(message, language)
 
         before_signals = {(signal.code, signal.support_span) for signal in case.semantic_signals}
@@ -176,7 +209,7 @@ class CaseCognitionEngine(BaseCaseCognitionEngine):
             case.retrieval_queries = build_retrieval_queries(case)
             case.decision = decide_next_action(case)
 
-        if _is_short_ambiguous(case):
+        if _is_short_ambiguous(case) or (raw_short_ambiguous and (case.events or case.hypotheses)):
             case.decision = MaterialDecision(
                 action="clarify",
                 reason="العبارة قصيرة وتحتمل أكثر من سياق قانوني؛ يلزم توضيح العلاقة بين الأطراف وسبب الفعل قبل بدء بحث قانوني موجّه.",
