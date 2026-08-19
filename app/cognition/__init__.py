@@ -1,5 +1,5 @@
 from .conversation import ConversationCaseState
-from .engine import CaseCognitionEngine
+from .engine_v21 import CaseCognitionEngine
 from .llm_enricher import CognitionEnrichment, GroqCognitionEnricher
 from .models import (
     Actor,
