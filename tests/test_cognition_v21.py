@@ -57,6 +57,21 @@ def test_live_route_fusion_for_cyber_extortion_keeps_criminal_domain():
     assert "event.threat" in _signals(case)
 
 
+def test_attached_waw_injury_adds_civil_to_traffic_route():
+    text = "صار حادث بين سيارتي وسيارة ثانية وانصاب السائق الثاني ونقلوه عالمستشفى"
+    case = CaseCognitionEngine(enable_llm=False).analyze(text)
+    route = apply_case_route(route_query(text, "auto", None), case, None)
+    assert route.domains[:2] == ["traffic", "civil"]
+
+
+def test_attached_waw_taking_makes_burglary_primary_criminal():
+    text = "دخل أحمد بيت خالد بالليل وكسر القفل وأخذ اللابتوب و500 دينار، وبعدها ضبطت الشرطة اللابتوب معه"
+    case = CaseCognitionEngine(enable_llm=False).analyze(text)
+    route = apply_case_route(route_query(text, "auto", None), case, None)
+    assert route.primary_domain == "criminal"
+    assert route.domains[0] == "criminal"
+
+
 def test_llm_taking_label_is_rejected_for_hospital_transport_text():
     message = "صار حادث وانصاب السائق الثاني ونقلوه عالمستشفى"
     enrichment = CognitionEnrichment(
