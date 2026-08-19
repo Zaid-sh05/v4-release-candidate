@@ -1,17 +1,34 @@
 from __future__ import annotations
 
+import re
+
 from .models import CaseModel, LegalHypothesis
 
 
+_ARABIC_DIACRITICS_RE = re.compile(r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]")
+
+
+def _normalize(text: str) -> str:
+    text = _ARABIC_DIACRITICS_RE.sub("", text.lower())
+    return (
+        text.replace("أ", "ا")
+        .replace("إ", "ا")
+        .replace("آ", "ا")
+        .replace("ٱ", "ا")
+        .replace("ى", "ي")
+        .replace("ؤ", "و")
+    )
+
+
 def _contains(text: str, *terms: str) -> bool:
-    low = text.lower()
-    return any(term.lower() in low for term in terms)
+    low = _normalize(text)
+    return any(_normalize(term) in low for term in terms)
 
 
 def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
     """Generate competing legal hypotheses from facts without deciding guilt.
 
-    This module intentionally produces *candidates*. Final legal characterization must
+    This module intentionally produces candidates. Final legal characterization must
     be based on verified Jordanian legal sources plus the facts needed for each element.
     """
     text = " ".join([case.raw_message] + [f.text for f in case.facts])
@@ -59,12 +76,12 @@ def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
             label_ar="سرقة محتملة",
             domain="criminal",
             rationale=["وجود استيلاء مذكور على مال أو شيء منقول"],
-            missing_elements=["ملكية المال", "رضا المالك من عدمه", "قصد التملك"] ,
+            missing_elements=["ملكية المال", "رضا المالك من عدمه", "قصد التملك"],
             confidence=0.58,
             status="needs_clarification",
         ))
 
-    if _contains(text, "كسر الباب", "كسر قفل", "خلع", "تسلق", "دخل البيت", "دخل المنزل"):
+    if _contains(text, "كسر الباب", "كسر قفل", "خلع", "تسلق", "دخل البيت", "دخل المنزل", "الدخول إلى منزل", "الدخول الى منزل"):
         hypotheses.append(LegalHypothesis(
             code="criminal.aggravating_entry",
             label_ar="دخول/كسر قد يشكل ظرفاً قانونياً مؤثراً",
@@ -86,7 +103,7 @@ def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
             status="needs_clarification",
         ))
 
-    if _contains(text, "استئناف", "اطعن", "طعن", "تمييز"):
+    if _contains(text, "استئناف", "استأنف", "أستأنف", "استانف", "مستأنف", "اطعن", "طعن", "تمييز"):
         hypotheses.append(LegalHypothesis(
             code="procedure.appeal",
             label_ar="طريق طعن أو استئناف",
