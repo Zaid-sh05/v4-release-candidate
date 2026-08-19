@@ -130,6 +130,23 @@ def _cognition_expansions(case)->list[str]:
     return out
 
 
+def _feedback_review_expansions(message:str,primary_domain:str)->list[str]:
+    """Reuse only official-source-derived hints from a previously validated correction."""
+    try:
+        hint=runtime_store.feedback_review_hint(message,primary_domain)
+    except Exception:
+        return []
+    if not hint:
+        return []
+    out=[]
+    for query in hint.get('retrieval_hints') or []:
+        q=' '.join((query or '').split()).strip()
+        if q and q not in out:
+            out.append(q)
+        if len(out)>=6: break
+    return out
+
+
 def handle_chat(req:ChatRequest)->ChatResponse:
     prior_history=[]
     if req.conversation_id:
@@ -154,6 +171,12 @@ def handle_chat(req:ChatRequest)->ChatResponse:
         case=None
         cognition_queries=[]
 
+    # This is the reinforcement-like loop: a prior correction can improve where we look,
+    # but never becomes legal evidence. The hints themselves came only from official
+    # sources that passed the evaluator during the negative-feedback review.
+    review_queries=_feedback_review_expansions(req.message,route.primary_domain) if route.intent!='smalltalk' else []
+    cognition_queries=list(dict.fromkeys(cognition_queries+review_queries))[:10]
+
     cid=runtime_store.ensure_conversation(req.conversation_id,route.language)
     runtime_store.save_message(cid,'user',req.message,route.primary_domain,route.intent)
     if route.intent=='smalltalk':
@@ -170,7 +193,7 @@ def handle_chat(req:ChatRequest)->ChatResponse:
     if not sources:
         sources=repository.search(effective_message,route.domains,8)
 
-    if cognition_queries and (not sources or route.confidence < 0.8):
+    if cognition_queries and (not sources or route.confidence < 0.8 or review_queries):
         cognitive_sources=_cloud_keyword_sources([effective_message]+cognition_queries,route.domains,12)
         if not cognitive_sources:
             cognitive_sources=repository.adaptive_search(
@@ -183,7 +206,7 @@ def handle_chat(req:ChatRequest)->ChatResponse:
     best_grounded=grounded
     best_eval=evaluation
     best_sources=sources
-    used_adaptive=False
+    used_adaptive=bool(review_queries)
 
     if grounded is None or grounded.strength!='strong' or (evaluation and evaluation.should_retry):
         evaluation_seed=evaluation or evaluate_answer(effective_message,route,'',sources)
