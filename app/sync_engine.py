@@ -1,5 +1,5 @@
 from __future__ import annotations
-import hashlib, io, re, zipfile, xml.etree.ElementTree as ET
+import io, re, zipfile, xml.etree.ElementTree as ET
 from collections import deque
 from urllib.parse import urljoin, urlparse
 import requests
@@ -8,7 +8,8 @@ from pypdf import PdfReader
 from .config import settings
 from .repository import repository
 from .document_classifier import classify_document
-from .text import pretty_title, normalize_ar
+from .legal_update_guard import legal_update_ledger
+from .text import pretty_title
 
 ALLOWED_HOSTS={
  'pm.gov.jo','www.pm.gov.jo','moj.gov.jo','www.moj.gov.jo','sjd.gov.jo','www.sjd.gov.jo',
@@ -81,6 +82,7 @@ def sync_source(source_id:str,max_docs:int|None=None):
     if not safe_url(source['url']): raise ValueError('Source URL is outside the official allowlist.')
     max_docs=max_docs or settings.sync_max_docs_per_source
     q=deque([source['url']]); seen=set(); docs=0; inserted=0; errors=[]
+    counters={'new':0,'changed':0,'unchanged':0,'rejected':0}
     session=requests.Session(); session.headers.update({'User-Agent':settings.sync_user_agent,'Accept':'text/html,application/xhtml+xml,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document;q=0.9,*/*;q=0.8'})
     while q and docs<max_docs:
         url=q.popleft()
@@ -88,6 +90,8 @@ def sync_source(source_id:str,max_docs:int|None=None):
         seen.add(url); docs+=1
         try:
             r=session.get(url,timeout=settings.sync_timeout_seconds,allow_redirects=True); r.raise_for_status(); ctype=(r.headers.get('content-type') or '').lower(); links=[]
+            if not safe_url(r.url):
+                raise ValueError('Redirected outside the official allowlist.')
             if is_pdf(r.content): raw_title=urlparse(r.url).path.rsplit('/',1)[-1]; text=pdf_text(r.content)
             elif is_docx(r.content): raw_title=urlparse(r.url).path.rsplit('/',1)[-1]; text=docx_text(r.content)
             elif 'html' in ctype or r.content.lstrip().startswith((b'<!DOCTYPE',b'<html',b'<HTML')):
@@ -95,12 +99,49 @@ def sync_source(source_id:str,max_docs:int|None=None):
             else: continue
             if len(text)<120: continue
             title=pretty_title(raw_title,text,source['authority']); domain=choose_domain(title,text,source); pieces=split_articles(text)
-            inserted+=repository.upsert_document_chunks(title=title,authority=source['authority'],domain=domain,source_url=r.url,chunks=pieces,source_kind='official_sync')
+            plan=legal_update_ledger.plan(
+                source_id=source_id,
+                source_url=r.url,
+                title=title,
+                authority=source['authority'],
+                domain=domain,
+                text=text,
+                chunks=pieces,
+                source_domains=source.get('domains',[]),
+            )
+            counters[plan.action]+=1
+            if plan.action=='rejected':
+                legal_update_ledger.record(source_id=source_id,source_url=r.url,title=title,domain=domain,plan=plan,promoted=False)
+            elif plan.action=='unchanged':
+                # Record the event for audit visibility, but do not rewrite the corpus.
+                legal_update_ledger.record(source_id=source_id,source_url=r.url,title=title,domain=domain,plan=plan,promoted=False)
+            else:
+                chunk_count=repository.upsert_document_chunks(title=title,authority=source['authority'],domain=domain,source_url=r.url,chunks=pieces,source_kind='official_sync')
+                inserted+=chunk_count
+                legal_update_ledger.record(
+                    source_id=source_id,
+                    source_url=r.url,
+                    title=title,
+                    domain=domain,
+                    plan=plan,
+                    promoted=True,
+                    details={'chunks_upserted':chunk_count},
+                )
             for href,label in links:
                 absolute=urljoin(r.url,href)
                 if safe_url(absolute) and candidate(absolute,label) and absolute not in seen: q.append(absolute)
         except Exception as exc:
             errors.append(f'{url}: {type(exc).__name__}: {str(exc)[:150]}')
-    status='ok' if inserted and not errors else ('partial' if inserted or errors else 'empty')
-    repository.update_sync_status(source_id,f'{status}: {inserted} chunks')
-    return {'source_id':source_id,'documents_visited':docs,'chunks_upserted':inserted,'errors':errors[:15]}
+    promoted=counters['new']+counters['changed']
+    status='ok' if promoted and not errors else ('partial' if promoted or errors else 'unchanged')
+    repository.update_sync_status(source_id,f"{status}: {promoted} promoted, {counters['unchanged']} unchanged, {counters['rejected']} rejected")
+    return {
+        'source_id':source_id,
+        'documents_visited':docs,
+        'documents_new':counters['new'],
+        'documents_changed':counters['changed'],
+        'documents_unchanged':counters['unchanged'],
+        'documents_rejected':counters['rejected'],
+        'chunks_upserted':inserted,
+        'errors':errors[:15],
+    }
