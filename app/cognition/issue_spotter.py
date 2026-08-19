@@ -9,7 +9,7 @@ _ARABIC_DIACRITICS_RE = re.compile(r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u0
 
 
 def _normalize(text: str) -> str:
-    text = _ARABIC_DIACRITICS_RE.sub("", text.lower())
+    text = _ARABIC_DIACRITICS_RE.sub("", (text or "").lower())
     return (
         text.replace("أ", "ا")
         .replace("إ", "ا")
@@ -26,37 +26,57 @@ def _contains(text: str, *terms: str) -> bool:
 
 
 def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
-    """Generate competing legal hypotheses from facts without deciding guilt.
+    """Generate competing legal hypotheses without deciding guilt or liability.
 
-    This module intentionally produces candidates. Final legal characterization must
-    be based on verified Jordanian legal sources plus the facts needed for each element.
+    Grounded LLM semantic signals may improve language understanding, but they remain
+    linguistic indicators. Final legal characterization still requires verified law.
     """
     text = " ".join([case.raw_message] + [f.text for f in case.facts])
     hypotheses: list[LegalHypothesis] = []
+    signals = {signal.code for signal in case.semantic_signals}
+    event_types = {event.event_type for event in case.events}
+    event_intents = {event.intent for event in case.events if event.intent != "unknown"}
 
-    if _contains(text, "قتل", "توفى", "توفي", "مات", "وفاة"):
-        intentional_markers = _contains(text, "قصداً", "قصدا", "متعمد", "عمد", "خطط", "سبق الإصرار", "سبق الاصرار")
-        accidental_markers = _contains(text, "بالغلط", "خطأ", "حادث", "دون قصد", "غير مقصود")
-        self_defense_markers = _contains(text, "دفاع", "دافع عن", "هاجمه", "اعتدى عليه")
+    death_present = (
+        "death" in event_types
+        or "event.death" in signals
+        or _contains(text, "قتل", "توفى", "توفي", "مات", "وفاة")
+    )
+    intentional_markers = (
+        bool({"intentional", "premeditated"} & event_intents)
+        or bool({"intent.intentional", "intent.premeditated"} & signals)
+        or _contains(text, "قصداً", "قصدا", "متعمد", "عمد", "خطط", "سبق الإصرار", "سبق الاصرار")
+    )
+    accidental_markers = (
+        "accidental" in event_intents
+        or "intent.accidental" in signals
+        or _contains(text, "بالغلط", "خطأ", "حادث", "دون قصد", "غير مقصود")
+    )
+    self_defense_markers = (
+        "self_defense_claim" in event_intents
+        or "intent.self_defense_claim" in signals
+        or _contains(text, "دفاع", "دافع عن", "هاجمه", "اعتدى عليه")
+    )
 
+    if death_present:
         hypotheses.append(LegalHypothesis(
             code="criminal.intentional_homicide",
             label_ar="قتل قصدي/عمد محتمل",
             domain="criminal",
             rationale=["وجود وفاة أو قتل ضمن الوقائع"],
             missing_elements=[] if intentional_markers else ["طبيعة القصد وقت الفعل", "كيفية وقوع الفعل والأداة والظروف"],
-            contradictions=["وجود وصف صريح بأن الواقعة كانت خطأ"] if accidental_markers else [],
-            confidence=0.78 if intentional_markers else 0.42,
+            contradictions=["وجود وصف أو إشارة بأن الواقعة غير مقصودة"] if accidental_markers else [],
+            confidence=0.80 if intentional_markers else 0.42,
             status="candidate" if intentional_markers else "needs_clarification",
         ))
         hypotheses.append(LegalHypothesis(
             code="criminal.unintentional_death",
-            label_ar="تسبب بالوفاة/قتل غير مقصود محتمل",
+            label_ar="تسبب بالوفاة/وفاة غير مقصودة محتملة",
             domain="criminal",
             rationale=["يجب استبعاد أو إثبات القصد قبل التكييف النهائي"],
             missing_elements=[] if accidental_markers else ["هل أراد الفاعل إحداث الوفاة أو الأذى؟", "هل وقع إهمال أو رعونة أو مخالفة واجب؟"],
-            contradictions=["وجود تخطيط أو سبق إصرار ظاهر"] if intentional_markers else [],
-            confidence=0.78 if accidental_markers else 0.35,
+            contradictions=["وجود تخطيط أو قصد ظاهر"] if intentional_markers else [],
+            confidence=0.80 if accidental_markers else 0.35,
             status="candidate" if accidental_markers else "needs_clarification",
         ))
         if self_defense_markers:
@@ -64,35 +84,50 @@ def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
                 code="criminal.self_defense",
                 label_ar="دفاع شرعي محتمل",
                 domain="criminal",
-                rationale=["الوقائع تتضمن اعتداءً أو دفاعاً عن النفس"],
+                rationale=["الوقائع تتضمن ادعاء دفاع أو اعتداء سابق"],
                 missing_elements=["هل كان الخطر حالاً؟", "هل كان الرد لازماً ومتناسباً؟"],
-                confidence=0.60,
+                confidence=0.62,
                 status="needs_clarification",
             ))
 
-    if _contains(text, "سرق", "سرقة", "أخذ", "اخذ"):
+    taking_present = (
+        "taking" in event_types
+        or "property.taking" in signals
+        or _contains(text, "سرق", "سرقة", "أخذ", "اخذ")
+    )
+    if taking_present:
         hypotheses.append(LegalHypothesis(
             code="criminal.theft",
             label_ar="سرقة محتملة",
             domain="criminal",
             rationale=["وجود استيلاء مذكور على مال أو شيء منقول"],
             missing_elements=["ملكية المال", "رضا المالك من عدمه", "قصد التملك"],
-            confidence=0.58,
+            confidence=0.60,
             status="needs_clarification",
         ))
 
-    if _contains(text, "كسر الباب", "كسر قفل", "خلع", "تسلق", "دخل البيت", "دخل المنزل", "الدخول إلى منزل", "الدخول الى منزل"):
+    entry_present = "entry" in event_types
+    breaking_present = "breaking" in event_types
+    if (
+        (entry_present and breaking_present)
+        or _contains(text, "كسر الباب", "كسر قفل", "خلع", "تسلق", "دخل البيت", "دخل المنزل", "الدخول إلى منزل", "الدخول الى منزل")
+    ):
         hypotheses.append(LegalHypothesis(
             code="criminal.aggravating_entry",
             label_ar="دخول/كسر قد يشكل ظرفاً قانونياً مؤثراً",
             domain="criminal",
             rationale=["طريقة الدخول قد تغيّر التكييف أو العقوبة"],
             missing_elements=["هل كان الدخول دون إذن؟", "هل وقع ليلاً؟", "هل كان المكان مسكوناً؟"],
-            confidence=0.64,
+            confidence=0.66,
             status="needs_clarification",
         ))
 
-    if _contains(text, "فصلني", "طردني", "انهاء عقد", "إنهاء عقد"):
+    termination_present = (
+        "termination" in event_types
+        or "employment.termination" in signals
+        or _contains(text, "فصلني", "طردني", "انهاء عقد", "إنهاء عقد")
+    )
+    if termination_present:
         hypotheses.append(LegalHypothesis(
             code="labor.termination",
             label_ar="إنهاء علاقة العمل",
@@ -103,14 +138,19 @@ def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
             status="needs_clarification",
         ))
 
-    if _contains(text, "استئناف", "استأنف", "أستأنف", "استانف", "مستأنف", "اطعن", "طعن", "تمييز"):
+    appeal_present = (
+        case.user_goal == "appeal"
+        or "goal.appeal" in signals
+        or _contains(text, "استئناف", "استأنف", "أستأنف", "استانف", "مستأنف", "اطعن", "طعن", "تمييز")
+    )
+    if appeal_present:
         hypotheses.append(LegalHypothesis(
             code="procedure.appeal",
             label_ar="طريق طعن أو استئناف",
             domain="procedure",
             rationale=["المستخدم يسأل عن مراجعة حكم أو قرار"],
             missing_elements=["نوع المحكمة", "نوع القضية", "وصف الحكم: وجاهي/غيابي/بمثابة الوجاهي", "تاريخ الصدور أو التبليغ"],
-            confidence=0.86,
+            confidence=0.88,
             status="needs_clarification",
         ))
 
