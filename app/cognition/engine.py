@@ -6,7 +6,8 @@ from .case_graph import build_case_graph
 from .clarification import choose_questions
 from .decision_gate import decide_next_action
 from .issue_spotter import spot_issues
-from .models import Actor, CaseModel, EvidenceItem, Event, Fact
+from .llm_enricher import CognitionEnricher, CognitionEnrichment, default_cognition_enricher
+from .models import Actor, CaseModel, EvidenceItem, Event, Fact, SemanticSignal
 from .retrieval_planner import build_retrieval_queries
 
 
@@ -22,14 +23,15 @@ _ARABIC_DIACRITICS_RE = re.compile(r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u0
 
 
 def _normalize_arabic(text: str) -> str:
-    text = _ARABIC_DIACRITICS_RE.sub("", text.lower())
-    return (
+    text = _ARABIC_DIACRITICS_RE.sub("", (text or "").lower())
+    return " ".join(
         text.replace("أ", "ا")
         .replace("إ", "ا")
         .replace("آ", "ا")
         .replace("ٱ", "ا")
         .replace("ى", "ي")
         .replace("ؤ", "و")
+        .split()
     )
 
 
@@ -90,7 +92,13 @@ def _extract_evidence(text: str) -> list[EvidenceItem]:
     for kind, terms in EVIDENCE_TERMS.items():
         matched = [term for term in terms if term.lower() in low]
         if matched:
-            out.append(EvidenceItem(kind=kind, description=f"ذكر المستخدم دليلاً/قرينة مرتبطة بـ: {', '.join(matched)}"))
+            out.append(
+                EvidenceItem(
+                    kind=kind,
+                    description=f"ذكر المستخدم دليلاً/قرينة مرتبطة بـ: {', '.join(matched)}",
+                    source="deterministic",
+                )
+            )
     return out
 
 
@@ -113,7 +121,6 @@ def _extract_actors(text: str) -> list[Actor]:
                 idx += 1
                 break
 
-    # Conservative Arabic proper-name extraction from common narrative positions.
     name_patterns = [
         r"(?:قام|قال|ضرب|دخل|أخذ|اخذ|قتل|طعن)\s+([\u0621-\u064A]{3,})",
         r"(?:جاره|منزل|بيت)\s+([\u0621-\u064A]{3,})",
@@ -159,13 +166,191 @@ def _event_types(sentence: str) -> list[str]:
     return found
 
 
+def _actor_id_for_label(case: CaseModel, label: str) -> str | None:
+    wanted = _normalize_arabic(label)
+    if not wanted:
+        return None
+    for actor in case.actors:
+        if _normalize_arabic(actor.label) == wanted:
+            return actor.id
+    return None
+
+
+def _event_position(message: str, event: Event) -> int:
+    raw = event.support_span or event.text
+    direct = message.find(raw)
+    if direct >= 0:
+        return direct
+    normalized_message = _normalize_arabic(message)
+    normalized_raw = _normalize_arabic(raw)
+    pos = normalized_message.find(normalized_raw)
+    return pos if pos >= 0 else 10**9
+
+
+def _merge_enrichment(case: CaseModel, enrichment: CognitionEnrichment) -> None:
+    """Merge only grounded linguistic enrichment; never legal conclusions."""
+    case.cognition_provider = enrichment.provider or "llm"
+    case.cognition_model = enrichment.model or ""
+    case.cognition_ambiguities = [
+        {
+            "question": str(item.get("question") or "").strip(),
+            "reason": str(item.get("reason") or "").strip(),
+            "material": bool(item.get("material")),
+        }
+        for item in enrichment.ambiguities
+        if item.get("question")
+    ]
+
+    # The deterministic goal/posture wins when it already recognized a specific intent.
+    if case.user_goal == "legal_analysis" and enrichment.user_goal in {
+        "penalty", "rights", "appeal", "procedure", "conversation"
+    }:
+        case.user_goal = enrichment.user_goal
+    if case.procedural_posture == "pre_case" and enrichment.procedural_posture in {
+        "investigation", "litigation", "post_judgment"
+    }:
+        case.procedural_posture = enrichment.procedural_posture
+
+    existing_actor_labels = {_normalize_arabic(actor.label) for actor in case.actors}
+    allowed_roles = {"person", "worker", "employer", "victim", "suspect", "police", "prosecutor", "court", "other"}
+    for item in enrichment.actors:
+        label = str(item.get("label") or "").strip()
+        if not label:
+            continue
+        normalized = _normalize_arabic(label)
+        role = str(item.get("role") or "person")
+        role = role if role in allowed_roles else "person"
+        support_span = str(item.get("support_span") or "").strip() or None
+        existing = next((a for a in case.actors if _normalize_arabic(a.label) == normalized), None)
+        if existing:
+            if existing.role in {"unknown", "person"} and role not in {"unknown", "person", "other"}:
+                existing.role = role
+                existing.source = "hybrid"
+                existing.support_span = support_span
+            continue
+        case.actors.append(
+            Actor(
+                id=f"a{len(case.actors) + 1}",
+                label=label,
+                role=role,
+                source="llm",
+                support_span=support_span,
+            )
+        )
+        existing_actor_labels.add(normalized)
+
+    allowed_event_types = {
+        "entry", "breaking", "taking", "violence", "death", "injury", "threat",
+        "termination", "judgment", "payment", "communication", "other",
+    }
+    allowed_intents = {"accidental", "intentional", "premeditated", "self_defense_claim", "unknown"}
+    for item in enrichment.events:
+        event_type = str(item.get("event_type") or "other")
+        if event_type not in allowed_event_types:
+            event_type = "other"
+        support_span = str(item.get("support_span") or "").strip()
+        if not support_span:
+            continue
+        intent = str(item.get("intent") or "unknown")
+        if intent not in allowed_intents:
+            intent = "unknown"
+        actor_id = _actor_id_for_label(case, str(item.get("actor_label") or ""))
+        target = str(item.get("target") or "").strip() or None
+        time_expression = str(item.get("time_expression") or "").strip() or None
+        location = str(item.get("location") or "").strip() or None
+
+        span_norm = _normalize_arabic(support_span)
+        existing = next(
+            (
+                event
+                for event in case.events
+                if event.event_type == event_type
+                and (
+                    span_norm in _normalize_arabic(event.text)
+                    or _normalize_arabic(event.text) in span_norm
+                )
+            ),
+            None,
+        )
+        if existing:
+            if actor_id and actor_id not in existing.actors:
+                existing.actors.append(actor_id)
+            if target and not existing.target:
+                existing.target = target
+            if existing.intent == "unknown" and intent != "unknown":
+                existing.intent = intent
+            if time_expression and not existing.time_expression:
+                existing.time_expression = time_expression
+            if location and not existing.location:
+                existing.location = location
+            existing.source = "hybrid"
+            existing.support_span = support_span
+            continue
+
+        case.events.append(
+            Event(
+                order=len(case.events) + 1,
+                text=support_span,
+                event_type=event_type,
+                actors=[actor_id] if actor_id else [],
+                target=target,
+                intent=intent,
+                time_expression=time_expression,
+                location=location,
+                source="llm",
+                support_span=support_span,
+            )
+        )
+
+    # Re-establish narrative order after adding events the deterministic parser missed.
+    case.events.sort(key=lambda event: (_event_position(case.raw_message, event), event.order))
+    for index, event in enumerate(case.events, start=1):
+        event.order = index
+
+    existing_evidence = {(item.kind, _normalize_arabic(item.support_span or item.description)) for item in case.evidence}
+    for item in enrichment.evidence:
+        kind = str(item.get("kind") or "other")
+        description = str(item.get("description") or "").strip()
+        support_span = str(item.get("support_span") or "").strip()
+        key = (kind, _normalize_arabic(support_span or description))
+        if not description or key in existing_evidence:
+            continue
+        case.evidence.append(
+            EvidenceItem(
+                kind=kind,
+                description=description,
+                reliability="medium",
+                source="llm",
+                support_span=support_span,
+            )
+        )
+        existing_evidence.add(key)
+
+    existing_signals = {(signal.code, _normalize_arabic(signal.support_span)) for signal in case.semantic_signals}
+    for item in enrichment.semantic_signals:
+        code = str(item.get("code") or "").strip()
+        support_span = str(item.get("support_span") or "").strip()
+        confidence = str(item.get("confidence") or "medium")
+        confidence = confidence if confidence in {"low", "medium", "high"} else "medium"
+        key = (code, _normalize_arabic(support_span))
+        if not code or not support_span or key in existing_signals:
+            continue
+        case.semantic_signals.append(
+            SemanticSignal(code=code, support_span=support_span, confidence=confidence, source="llm")
+        )
+        existing_signals.add(key)
+
+
 class CaseCognitionEngine:
     """Create a structured case model before legal retrieval.
 
-    V4 deliberately separates *understanding facts* from *deciding the law*. The
-    deterministic layer is conservative and can later be enriched by a free/local LLM
-    without allowing the model to become the legal source of truth.
+    The deterministic layer always runs first. An optional LLM may enrich language
+    understanding, but only grounded spans are accepted and the LLM never becomes a
+    source of Jordanian law. If the LLM is unavailable, analysis continues normally.
     """
+
+    def __init__(self, enricher: CognitionEnricher | None = None, enable_llm: bool = True):
+        self.enricher = enricher if enricher is not None else (default_cognition_enricher() if enable_llm else None)
 
     def analyze(self, message: str, language: str = "ar") -> CaseModel:
         case = CaseModel(
@@ -186,9 +371,13 @@ class CaseCognitionEngine:
                 case.events.append(Event(order=event_order, text=sentence, event_type=event_type))
                 event_order += 1
 
-        # Cognition V2: build a fact graph before legal issue selection.
-        case.graph = build_case_graph(case)
+        if self.enricher:
+            enrichment = self.enricher.enrich(message, language)
+            if enrichment:
+                _merge_enrichment(case, enrichment)
 
+        # Build the graph only after all grounded cognition enrichment has been merged.
+        case.graph = build_case_graph(case)
         case.hypotheses = spot_issues(case)
         case.domains = list(dict.fromkeys(h.domain for h in case.hypotheses)) or ["general"]
         case.clarifying_questions = choose_questions(case)
@@ -199,6 +388,5 @@ class CaseCognitionEngine:
         if case.hypotheses and all(h.status == "needs_clarification" for h in case.hypotheses):
             case.warnings.append("لا ينبغي إعطاء تكييف نهائي قبل استكمال الوقائع الجوهرية المحددة في أسئلة التوضيح.")
 
-        # The gate decides whether the system should ask, retrieve, or eventually answer.
         case.decision = decide_next_action(case)
         return case
