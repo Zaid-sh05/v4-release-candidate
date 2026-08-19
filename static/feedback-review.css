@@ -1,0 +1,12 @@
+.feedback-review-editor{width:100%;display:grid;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(148,163,184,.18)}
+.feedback-review-editor textarea{width:100%;min-height:58px;resize:vertical;border:1px solid rgba(148,163,184,.24);border-radius:10px;background:rgba(255,255,255,.035);color:inherit;padding:9px 10px;font:inherit;line-height:1.55;outline:none}
+.feedback-review-editor textarea:focus{border-color:rgba(87,192,160,.65);box-shadow:0 0 0 2px rgba(87,192,160,.08)}
+.feedback-review-actions{display:flex;gap:7px;flex-wrap:wrap}
+.feedback-review-actions button{border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer}
+.feedback-review-submit{border:1px solid rgba(87,192,160,.45);background:rgba(87,192,160,.12);color:inherit}
+.feedback-review-cancel{border:1px solid rgba(148,163,184,.22);background:transparent;color:inherit}
+.feedback-review-status{display:block;width:100%;margin-top:7px;font-size:.79rem;line-height:1.5;opacity:.82}
+.feedback-review-status.corrected{opacity:1;font-weight:600}
+.feedback-review-status.checking{opacity:.68}
+.feedback-review-status.error{opacity:1}
+@media(max-width:720px){.feedback-review-editor textarea{font-size:16px}.feedback-review-actions button{min-height:38px}}
