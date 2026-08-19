@@ -82,6 +82,31 @@ create table if not exists public.qanoni_feedback (
   created_at timestamptz not null default now()
 );
 
+-- Grounded feedback memory. User notes are stored for audit/review only. Retrieval hints
+-- in this table are generated from official sources after an evaluator-passed re-check.
+create table if not exists public.qanoni_feedback_reviews (
+  id text primary key,
+  feedback_id text references public.qanoni_feedback(id) on delete set null,
+  conversation_id text references public.qanoni_conversations(id) on delete set null,
+  question_fingerprint text not null,
+  question text not null,
+  previous_answer text,
+  feedback_note text,
+  primary_domain text not null,
+  status text not null check (status in ('auto_corrected','needs_review')),
+  old_score double precision,
+  proposed_answer text,
+  new_score double precision,
+  source_refs jsonb not null default '[]'::jsonb,
+  retrieval_hints jsonb not null default '[]'::jsonb,
+  review_reason text,
+  created_at timestamptz not null default now()
+);
+create index if not exists qanoni_feedback_reviews_question_idx
+  on public.qanoni_feedback_reviews(question_fingerprint, primary_domain, created_at desc);
+create index if not exists qanoni_feedback_reviews_status_idx
+  on public.qanoni_feedback_reviews(status, created_at desc);
+
 -- Persistent state for stateless weekly GitHub Actions runners.
 create table if not exists public.qanoni_legal_sync_fingerprints (
   source_url text primary key,
@@ -117,12 +142,14 @@ alter table public.qanoni_conversations enable row level security;
 alter table public.qanoni_messages enable row level security;
 alter table public.qanoni_answer_evaluations enable row level security;
 alter table public.qanoni_feedback enable row level security;
+alter table public.qanoni_feedback_reviews enable row level security;
 alter table public.qanoni_legal_sync_fingerprints enable row level security;
 alter table public.qanoni_legal_update_events enable row level security;
 
 -- No public RLS policies are created. Never put the service-role key in frontend code.
 grant all on table public.legal_documents to service_role;
 grant all on table public.legal_chunks to service_role;
+grant all on table public.qanoni_feedback_reviews to service_role;
 grant all on table public.qanoni_legal_sync_fingerprints to service_role;
 grant all on table public.qanoni_legal_update_events to service_role;
 
