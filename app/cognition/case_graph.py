@@ -20,7 +20,7 @@ def _find_actor_id(case: CaseModel, text: str) -> str | None:
 def _intent_marker(text: str) -> str | None:
     low = text.lower()
     if any(x in low for x in ["بالغلط", "دون قصد", "غير مقصود", "ما كنت أقصد", "ما كنت اقصد", "خطأ", "خطا"]):
-        return "accidental"
+        return "unintentional"
     if any(x in low for x in ["سبق الإصرار", "سبق الاصرار", "خطط", "انتظره", "حضّر", "حضر له"]):
         return "premeditated"
     if any(x in low for x in ["عمداً", "عمدا", "قصداً", "قصدا", "متعمد", "تعمد"]):
@@ -106,6 +106,8 @@ def build_case_graph(case: CaseModel) -> list[CaseRelation]:
             confidence="high",
         ))
         intent = event.intent if event.intent != "unknown" else _intent_marker(event.text)
+        if intent == "accidental":
+            intent = "unintentional"
         if intent:
             relations.append(CaseRelation(
                 subject=event_node,
