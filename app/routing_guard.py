@@ -75,8 +75,17 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
     personal = _has(text, "طلاق", "خلع", "نفقة", "حضانة", "زواج", "مطلقة", "طليقي", "محكمة شرعية", "divorce", "custody", "alimony")
     labor = _has(text, "فصلني", "طردني", "الفصل", "سبب الفصل", "صاحب العمل", "عقد عمل", "راتب", "اجر", "إنذار مكتوب", "انذار مكتوب", "ضعف الاداء", "employer", "fired", "dismissed")
     traffic = _has(text, "اشارة حمراء", "إشارة حمراء", "حادث", "صدمت", "دهست", "تصادم", "سيارة", "مركبة", "سائق", "مسرع", "red light", "road accident", "vehicle")
-    cyber = _has(text, "واتساب", "انستغرام", "فيسبوك", "ابتزاز", "اختراق", "تهكير", "whatsapp", "online blackmail", "cybercrime")
-    threat = _has(text, "هدد", "تهديد", "ابتزاز", "ابتزني", "threat", "blackmail", "extortion")
+    cyber = _has(
+        text,
+        "واتساب", "انستغرام", "فيسبوك", "ابتزاز", "ابتزني", "ببتزني", "يبتزني",
+        "اختراق", "تهكير", "whatsapp", "online blackmail", "cybercrime",
+    )
+    threat = _has(
+        text,
+        "هدد", "هددني", "يهددني", "بهددني", "بتهددني", "تهديد",
+        "ابتزاز", "ابتزني", "ببتزني", "يبتزني", "مبتزني",
+        "threat", "blackmail", "extortion",
+    )
     violence = _has(text, "قتل", "قتله", "اعتداء", "ضرب", "ضربني", "طعن", "هاجمني", "سلاح", "سرقة", "سرقت", "سرق", "murder", "assault", "theft")
     taking = _has(text, "أخذ", "اخذ", "أخذت", "اخذت", "سرق", "سرقت", "استولى", "took", "stole")
     forced_entry = _has(text, "كسر", "خلع", "دخل البيت", "دخل المنزل", "تسلل", "اقتحم", "forced entry")
