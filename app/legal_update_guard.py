@@ -63,8 +63,15 @@ def quality_gate(*, title: str, text: str, domain: str, chunks: list[tuple[str |
         return False, 'garbled_or_boilerplate_text'
     if not _LEGAL_HINT_RE.search(f'{title} {cleaned[:2500]}'):
         return False, 'no_legal_language_detected'
-    substantive = sum(1 for _, body in chunks if len(' '.join((body or '').split())) >= 120)
-    if substantive == 0:
+
+    # Statutory article splitting naturally produces many short chunks. Requiring a
+    # single article to exceed an arbitrary length rejects valid laws with concise
+    # provisions. Evaluate the extracted document as a whole while still requiring at
+    # least one non-trivial chunk so menu/navigation fragments cannot pass on volume.
+    chunk_lengths = [len(' '.join((body or '').replace('\x00', ' ').split())) for _, body in chunks]
+    aggregate_chunk_text = sum(chunk_lengths)
+    meaningful_chunks = sum(1 for length in chunk_lengths if length >= 45)
+    if aggregate_chunk_text < 200 or meaningful_chunks == 0:
         return False, 'no_substantive_chunks'
     return True, 'accepted'
 
