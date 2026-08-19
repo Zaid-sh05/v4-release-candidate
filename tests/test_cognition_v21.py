@@ -41,6 +41,31 @@ def test_short_ambiguous_taking_requires_clarification():
     assert "short_ambiguous_prompt" in case.decision.blockers
 
 
+def test_short_ambiguous_gate_survives_llm_enrichment():
+    enrichment = CognitionEnrichment(
+        user_goal="rights",
+        events=[{
+            "event_type": "taking",
+            "actor_label": "",
+            "target": "المصاري",
+            "intent": "intentional",
+            "time_expression": "",
+            "location": "",
+            "support_span": "أخذ المصاري",
+        }],
+        semantic_signals=[{
+            "code": "intent.intentional",
+            "confidence": "high",
+            "support_span": "أخذ المصاري",
+        }],
+        provider="fake",
+        model="fake",
+    )
+    case = CaseCognitionEngine(enricher=FakeEnricher(enrichment)).analyze("أخذ المصاري ومشي")
+    assert case.decision.action == "clarify"
+    assert "short_ambiguous_prompt" in case.decision.blockers
+
+
 def test_live_route_fusion_for_self_defense_is_criminal():
     text = "هاجمني واحد بسكين وضربني، فدفعت عنه وضربته دفاعاً عن نفسي وبعدها توفى"
     case = CaseCognitionEngine(enable_llm=False).analyze(text)
@@ -62,6 +87,13 @@ def test_attached_waw_injury_adds_civil_to_traffic_route():
     case = CaseCognitionEngine(enable_llm=False).analyze(text)
     route = apply_case_route(route_query(text, "auto", None), case, None)
     assert route.domains[:2] == ["traffic", "civil"]
+
+
+def test_fatal_traffic_case_prioritizes_criminal_before_civil():
+    text = "صدمت شخص بالسيارة بالغلط وتوفي، كنت مسرع بس ما كنت أقصد أضربه أو أقتله"
+    case = CaseCognitionEngine(enable_llm=False).analyze(text)
+    route = apply_case_route(route_query(text, "auto", None), case, None)
+    assert route.domains[:3] == ["traffic", "criminal", "civil"]
 
 
 def test_attached_waw_taking_makes_burglary_primary_criminal():
