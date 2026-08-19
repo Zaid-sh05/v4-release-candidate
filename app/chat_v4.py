@@ -49,8 +49,16 @@ class _GuardedSupabaseStore:
     def __init__(self, inner):
         self._inner = inner
 
+    @property
+    def configured(self):
+        return self._inner.configured
+
     def hybrid_search(self, query, embedding, domains, limit=8):
         rows = self._inner.hybrid_search(query, embedding, domains, limit)
+        return _filter_source_rows(rows, domains)
+
+    def keyword_search(self, query, domains, limit=8):
+        rows = self._inner.keyword_search(query, domains, limit)
         return _filter_source_rows(rows, domains)
 
     def __getattr__(self, name):
