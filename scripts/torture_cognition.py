@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
+
+# Allow `python scripts\torture_cognition.py` to work on Windows/Linux without
+# requiring PYTHONPATH to be set manually. This mirrors the diagnostic runner.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from app.cognition import CaseCognitionEngine
 from app.router import analyze_query
