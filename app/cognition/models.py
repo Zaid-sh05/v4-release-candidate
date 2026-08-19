@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 Confidence = Literal["low", "medium", "high"]
@@ -13,6 +13,8 @@ class Actor:
     label: str
     role: str = "unknown"
     attributes: dict[str, str] = field(default_factory=dict)
+    source: str = "deterministic"
+    support_span: str | None = None
 
 
 @dataclass
@@ -30,8 +32,12 @@ class Event:
     text: str
     event_type: str = "unknown"
     actors: list[str] = field(default_factory=list)
+    target: str | None = None
+    intent: str = "unknown"
     time_expression: str | None = None
     location: str | None = None
+    source: str = "deterministic"
+    support_span: str | None = None
 
 
 @dataclass
@@ -40,6 +46,16 @@ class EvidenceItem:
     description: str
     supports: list[str] = field(default_factory=list)
     reliability: Confidence = "medium"
+    source: str = "deterministic"
+    support_span: str | None = None
+
+
+@dataclass
+class SemanticSignal:
+    code: str
+    support_span: str
+    confidence: Confidence = "medium"
+    source: str = "llm"
 
 
 @dataclass
@@ -93,6 +109,7 @@ class CaseModel:
     facts: list[Fact] = field(default_factory=list)
     events: list[Event] = field(default_factory=list)
     evidence: list[EvidenceItem] = field(default_factory=list)
+    semantic_signals: list[SemanticSignal] = field(default_factory=list)
     graph: list[CaseRelation] = field(default_factory=list)
     amounts: list[str] = field(default_factory=list)
     dates: list[str] = field(default_factory=list)
@@ -102,6 +119,9 @@ class CaseModel:
     clarifying_questions: list[ClarifyingQuestion] = field(default_factory=list)
     retrieval_queries: list[str] = field(default_factory=list)
     decision: MaterialDecision | None = None
+    cognition_provider: str = "deterministic"
+    cognition_model: str = ""
+    cognition_ambiguities: list[dict[str, str | bool]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
