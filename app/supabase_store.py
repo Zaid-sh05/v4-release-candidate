@@ -12,6 +12,11 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _question_fingerprint(question: str) -> str:
+    normalized=' '.join(normalize_ar(question or '').split())
+    return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
+
+
 class SupabaseStore:
     """Server-side Supabase access.
 
@@ -59,7 +64,6 @@ class SupabaseStore:
             return []
 
     def keyword_search(self, query: str, domains: list[str], limit: int = 8):
-        """Search the cloud corpus without paid embeddings."""
         if not self.client:
             return []
         try:
@@ -84,25 +88,14 @@ class SupabaseStore:
         source_kind: str = 'official_sync',
         verified_at: str | None = None,
     ) -> int:
-        """Promote one accepted official document into the persistent cloud corpus.
-
-        New content is written first. Only after the current version is searchable do we
-        remove stale chunks and older document IDs tied to the exact same official URL.
-        This avoids serving two versions of an amended law while protecting against a
-        transient write failure erasing the previous version first.
-        """
         if not self.client:
             raise RuntimeError('Supabase is not configured')
         stamp = verified_at or now_iso()
         doc_id = hashlib.sha1(f'{source_url}|{title}|{domain}'.encode()).hexdigest()
-
         prior_documents = (
-            self.client.table('legal_documents')
-            .select('id')
-            .eq('source_url', source_url)
-            .execute().data or []
+            self.client.table('legal_documents').select('id').eq('source_url', source_url).execute().data or []
         )
-        document = {
+        self.client.table('legal_documents').upsert({
             'id': doc_id,
             'title_ar': title,
             'authority': authority,
@@ -110,150 +103,141 @@ class SupabaseStore:
             'source_url': source_url,
             'source_kind': source_kind,
             'verified_at': stamp,
-        }
-        self.client.table('legal_documents').upsert(document).execute()
+        }).execute()
 
-        rows = []
-        current_ids = set()
+        rows=[]; current_ids=set()
         for article, body in chunks:
-            body = (body or '').strip()
-            if len(body) < 40:
-                continue
-            content_hash = hashlib.sha256(normalize_ar(body).encode()).hexdigest()
-            chunk_id = hashlib.sha1(f'{doc_id}|{article or ""}|{content_hash}'.encode()).hexdigest()
+            body=(body or '').strip()
+            if len(body)<40: continue
+            content_hash=hashlib.sha256(normalize_ar(body).encode()).hexdigest()
+            chunk_id=hashlib.sha1(f'{doc_id}|{article or ""}|{content_hash}'.encode()).hexdigest()
             current_ids.add(chunk_id)
             rows.append({
-                'id': chunk_id,
-                'document_id': doc_id,
-                'title': title,
-                'authority': authority,
-                'domain': domain,
-                'source_url': source_url,
-                'article': article,
-                'body': body,
-                'verified_at': stamp,
-                'source_kind': source_kind,
+                'id':chunk_id,'document_id':doc_id,'title':title,'authority':authority,'domain':domain,
+                'source_url':source_url,'article':article,'body':body,'verified_at':stamp,'source_kind':source_kind,
             })
         if not rows:
             raise ValueError('Accepted legal document produced no promotable chunks')
+        for start in range(0,len(rows),150):
+            self.client.table('legal_chunks').upsert(rows[start:start+150]).execute()
 
-        for start in range(0, len(rows), 150):
-            self.client.table('legal_chunks').upsert(rows[start:start + 150]).execute()
-
-        existing = self.client.table('legal_chunks').select('id').eq('document_id', doc_id).execute().data or []
-        stale_chunks = [row.get('id') for row in existing if row.get('id') and row.get('id') not in current_ids]
-        for start in range(0, len(stale_chunks), 150):
-            batch = stale_chunks[start:start + 150]
-            if batch:
-                self.client.table('legal_chunks').delete().in_('id', batch).execute()
-
-        stale_documents = [row.get('id') for row in prior_documents if row.get('id') and row.get('id') != doc_id]
-        for start in range(0, len(stale_documents), 100):
-            batch = stale_documents[start:start + 100]
-            if batch:
-                # legal_chunks cascades on document deletion.
-                self.client.table('legal_documents').delete().in_('id', batch).execute()
+        existing=self.client.table('legal_chunks').select('id').eq('document_id',doc_id).execute().data or []
+        stale_chunks=[row.get('id') for row in existing if row.get('id') and row.get('id') not in current_ids]
+        for start in range(0,len(stale_chunks),150):
+            batch=stale_chunks[start:start+150]
+            if batch: self.client.table('legal_chunks').delete().in_('id',batch).execute()
+        stale_documents=[row.get('id') for row in prior_documents if row.get('id') and row.get('id')!=doc_id]
+        for start in range(0,len(stale_documents),100):
+            batch=stale_documents[start:start+100]
+            if batch: self.client.table('legal_documents').delete().in_('id',batch).execute()
         return len(rows)
 
     def get_legal_sync_fingerprint(self, source_url: str) -> str | None:
-        if not self.client:
-            return None
-        rows = (
-            self.client.table('qanoni_legal_sync_fingerprints')
-            .select('fingerprint')
-            .eq('source_url', source_url)
-            .limit(1)
-            .execute().data or []
-        )
+        if not self.client: return None
+        rows=(self.client.table('qanoni_legal_sync_fingerprints').select('fingerprint').eq('source_url',source_url).limit(1).execute().data or [])
         return rows[0].get('fingerprint') if rows else None
 
     def upsert_legal_sync_fingerprint(self, *, source_url: str, source_id: str, title: str, domain: str, fingerprint: str, promoted_at: str) -> None:
-        if not self.client:
-            return
+        if not self.client: return
         self.client.table('qanoni_legal_sync_fingerprints').upsert({
-            'source_url': source_url,
-            'source_id': source_id,
-            'title': title,
-            'domain': domain,
-            'fingerprint': fingerprint,
-            'promoted_at': promoted_at,
+            'source_url':source_url,'source_id':source_id,'title':title,'domain':domain,
+            'fingerprint':fingerprint,'promoted_at':promoted_at,
         }).execute()
 
     def log_legal_update_event(self, *, source_id: str, source_url: str, title: str, domain: str, action: str, fingerprint: str, reason: str, details: dict, created_at: str) -> None:
-        if not self.client:
-            return
+        if not self.client: return
         self.client.table('qanoni_legal_update_events').insert({
-            'id': str(uuid.uuid4()),
-            'source_id': source_id,
-            'source_url': source_url,
-            'title': title,
-            'domain': domain,
-            'action': action,
-            'fingerprint': fingerprint,
-            'reason': reason,
-            'details': details or {},
-            'created_at': created_at,
+            'id':str(uuid.uuid4()),'source_id':source_id,'source_url':source_url,'title':title,
+            'domain':domain,'action':action,'fingerprint':fingerprint,'reason':reason,
+            'details':details or {},'created_at':created_at,
         }).execute()
 
     def ensure_conversation(self, conversation_id: str | None, language: str) -> str:
-        if not self.client:
-            raise RuntimeError('Supabase is not configured')
-        cid = conversation_id or str(uuid.uuid4())
-        now = now_iso()
-        existing = self.client.table('qanoni_conversations').select('id').eq('id', cid).limit(1).execute().data or []
+        if not self.client: raise RuntimeError('Supabase is not configured')
+        cid=conversation_id or str(uuid.uuid4()); now=now_iso()
+        existing=self.client.table('qanoni_conversations').select('id').eq('id',cid).limit(1).execute().data or []
         if existing:
-            self.client.table('qanoni_conversations').update({'language': language, 'updated_at': now}).eq('id', cid).execute()
+            self.client.table('qanoni_conversations').update({'language':language,'updated_at':now}).eq('id',cid).execute()
         else:
-            self.client.table('qanoni_conversations').insert({'id': cid, 'language': language, 'created_at': now, 'updated_at': now}).execute()
+            self.client.table('qanoni_conversations').insert({'id':cid,'language':language,'created_at':now,'updated_at':now}).execute()
         return cid
 
     def save_message(self, cid: str, role: str, content: str, domain: str | None = None, intent: str | None = None):
-        if not self.client:
-            raise RuntimeError('Supabase is not configured')
-        now = now_iso()
+        if not self.client: raise RuntimeError('Supabase is not configured')
+        now=now_iso()
         self.client.table('qanoni_messages').insert({
-            'id': str(uuid.uuid4()), 'conversation_id': cid, 'role': role, 'content': content,
-            'primary_domain': domain, 'intent': intent, 'created_at': now,
+            'id':str(uuid.uuid4()),'conversation_id':cid,'role':role,'content':content,
+            'primary_domain':domain,'intent':intent,'created_at':now,
         }).execute()
-        self.client.table('qanoni_conversations').update({'updated_at': now}).eq('id', cid).execute()
+        self.client.table('qanoni_conversations').update({'updated_at':now}).eq('id',cid).execute()
 
     def history(self, cid: str, limit: int = 8) -> list[dict]:
-        if not self.client:
-            raise RuntimeError('Supabase is not configured')
-        rows = self.client.table('qanoni_messages').select('role,content,created_at').eq('conversation_id', cid).order('created_at', desc=True).limit(limit).execute().data or []
-        return [{'role': r['role'], 'content': r['content']} for r in reversed(rows)]
+        if not self.client: raise RuntimeError('Supabase is not configured')
+        rows=self.client.table('qanoni_messages').select('role,content,created_at').eq('conversation_id',cid).order('created_at',desc=True).limit(limit).execute().data or []
+        return [{'role':r['role'],'content':r['content']} for r in reversed(rows)]
 
     def log_evaluation(self, cid: str, message: str, intent: str, primary_domain: str, passed: bool, score: float, reasons: list[str], mode: str):
-        if not self.client:
-            raise RuntimeError('Supabase is not configured')
+        if not self.client: raise RuntimeError('Supabase is not configured')
         self.client.table('qanoni_answer_evaluations').insert({
-            'id': str(uuid.uuid4()), 'conversation_id': cid, 'message': message,
-            'intent': intent, 'primary_domain': primary_domain, 'passed': bool(passed),
-            'score': float(score), 'reasons': reasons, 'mode': mode, 'created_at': now_iso(),
+            'id':str(uuid.uuid4()),'conversation_id':cid,'message':message,'intent':intent,
+            'primary_domain':primary_domain,'passed':bool(passed),'score':float(score),
+            'reasons':reasons,'mode':mode,'created_at':now_iso(),
         }).execute()
 
     def save_feedback(self, cid: str | None, rating: str, note: str | None = None) -> dict:
-        if not self.client:
-            raise RuntimeError('Supabase is not configured')
-        if rating not in {'helpful', 'not_helpful'}:
-            raise ValueError('rating must be helpful or not_helpful')
-        fid = str(uuid.uuid4())
+        if not self.client: raise RuntimeError('Supabase is not configured')
+        if rating not in {'helpful','not_helpful'}: raise ValueError('rating must be helpful or not_helpful')
+        fid=str(uuid.uuid4())
         self.client.table('qanoni_feedback').insert({
-            'id': fid, 'conversation_id': cid, 'rating': rating,
-            'note': (note or '')[:1200], 'created_at': now_iso(),
+            'id':fid,'conversation_id':cid,'rating':rating,'note':(note or '')[:1200],'created_at':now_iso(),
         }).execute()
-        return {'id': fid, 'saved': True, 'rating': rating, 'store': 'supabase'}
+        return {'id':fid,'saved':True,'rating':rating,'store':'supabase'}
+
+    def save_feedback_review(self, *, feedback_id: str | None, conversation_id: str | None, question: str, previous_answer: str, feedback_note: str | None, primary_domain: str, status: str, old_score: float | None, proposed_answer: str | None, new_score: float | None, source_refs: list[dict], retrieval_hints: list[str], review_reason: str) -> dict:
+        if not self.client: raise RuntimeError('Supabase is not configured')
+        rid=str(uuid.uuid4()); created=now_iso(); fp=_question_fingerprint(question)
+        self.client.table('qanoni_feedback_reviews').insert({
+            'id':rid,'feedback_id':feedback_id,'conversation_id':conversation_id,'question_fingerprint':fp,
+            'question':question,'previous_answer':previous_answer,'feedback_note':(feedback_note or '')[:1200],
+            'primary_domain':primary_domain,'status':status,'old_score':old_score,'proposed_answer':proposed_answer,
+            'new_score':new_score,'source_refs':source_refs or [],'retrieval_hints':retrieval_hints or [],
+            'review_reason':review_reason,'created_at':created,
+        }).execute()
+        return {'id':rid,'status':status,'question_fingerprint':fp,'created_at':created,'store':'supabase'}
+
+    def feedback_review_hint(self, question: str, primary_domain: str) -> dict | None:
+        if not self.client: raise RuntimeError('Supabase is not configured')
+        fp=_question_fingerprint(question)
+        rows=(self.client.table('qanoni_feedback_reviews')
+            .select('id,retrieval_hints,source_refs,new_score,created_at')
+            .eq('question_fingerprint',fp).eq('primary_domain',primary_domain).eq('status','auto_corrected')
+            .order('created_at',desc=True).limit(1).execute().data or [])
+        if not rows: return None
+        row=rows[0]
+        return {'review_id':row.get('id'),'retrieval_hints':row.get('retrieval_hints') or [],
+                'source_refs':row.get('source_refs') or [],'score':row.get('new_score'),'created_at':row.get('created_at')}
+
+    def list_feedback_reviews(self, limit: int=50) -> list[dict]:
+        if not self.client: raise RuntimeError('Supabase is not configured')
+        return (self.client.table('qanoni_feedback_reviews').select('*').order('created_at',desc=True)
+                .limit(min(max(int(limit),1),200)).execute().data or [])
+
+    def feedback_review_stats(self) -> dict:
+        if not self.client: raise RuntimeError('Supabase is not configured')
+        rows=self.client.table('qanoni_feedback_reviews').select('status').execute().data or []
+        out={}
+        for row in rows:
+            status=row.get('status') or 'unknown'; out[status]=out.get(status,0)+1
+        return out
 
     def feedback_stats(self) -> dict:
-        if not self.client:
-            raise RuntimeError('Supabase is not configured')
-        rows = self.client.table('qanoni_feedback').select('rating').execute().data or []
-        out = {'helpful': 0, 'not_helpful': 0}
+        if not self.client: raise RuntimeError('Supabase is not configured')
+        rows=self.client.table('qanoni_feedback').select('rating').execute().data or []
+        out={'helpful':0,'not_helpful':0}
         for r in rows:
-            rating = r.get('rating')
-            if rating in out:
-                out[rating] += 1
+            rating=r.get('rating')
+            if rating in out: out[rating]+=1
         return out
 
 
-supabase_store = SupabaseStore()
+supabase_store=SupabaseStore()
