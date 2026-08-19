@@ -1,5 +1,13 @@
-from app.cognition import CaseCognitionEngine
+from app.cognition import CaseCognitionEngine, CognitionEnrichment
 from app.routing_guard import apply_case_route, route_query
+
+
+class FakeEnricher:
+    def __init__(self, enrichment):
+        self.enrichment = enrichment
+
+    def enrich(self, message: str, language: str = "ar"):
+        return self.enrichment
 
 
 def _codes(case):
@@ -47,3 +55,48 @@ def test_live_route_fusion_for_cyber_extortion_keeps_criminal_domain():
     route = apply_case_route(route_query(text, "auto", None), case, None)
     assert route.domains[:2] == ["cyber", "criminal"]
     assert "event.threat" in _signals(case)
+
+
+def test_llm_taking_label_is_rejected_for_hospital_transport_text():
+    message = "صار حادث وانصاب السائق الثاني ونقلوه عالمستشفى"
+    enrichment = CognitionEnrichment(
+        events=[{
+            "event_type": "taking",
+            "actor_label": "",
+            "target": "المستشفى",
+            "intent": "unknown",
+            "time_expression": "",
+            "location": "",
+            "support_span": "نقلوه عالمستشفى",
+        }],
+        provider="fake",
+        model="fake",
+    )
+    case = CaseCognitionEngine(enricher=FakeEnricher(enrichment)).analyze(message)
+    assert all(event.event_type != "taking" for event in case.events)
+
+
+def test_llm_breaking_label_is_rejected_for_cancelled_sale_text():
+    message = "دفعت عربون 2000 دينار على شقة والبائع رجع عن البيع"
+    enrichment = CognitionEnrichment(
+        events=[{
+            "event_type": "breaking",
+            "actor_label": "",
+            "target": "العربون",
+            "intent": "intentional",
+            "time_expression": "",
+            "location": "",
+            "support_span": "البائع رجع عن البيع",
+        }],
+        provider="fake",
+        model="fake",
+    )
+    case = CaseCognitionEngine(enricher=FakeEnricher(enrichment)).analyze(message)
+    assert all(event.event_type != "breaking" for event in case.events)
+
+
+def test_police_allegation_with_denial_marks_fact_disputed():
+    message = "الشرطة بتقول إني سرقت التلفون بس أنا بنكر، والدليل الوحيد شاهد بحكي إنه شافني قريب من المكان"
+    case = CaseCognitionEngine(enable_llm=False).analyze(message)
+    assert any(fact.disputed for fact in case.facts)
+    assert "criminal.theft" in _codes(case)
