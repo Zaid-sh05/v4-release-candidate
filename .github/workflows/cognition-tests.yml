@@ -12,6 +12,8 @@ jobs:
       APP_ENV: test
       RUNTIME_STORE: sqlite
       OPENAI_API_KEY: ""
+      GROQ_API_KEY: ""
+      COGNITION_LLM_PROVIDER: off
       SUPABASE_URL: ""
       SUPABASE_SERVICE_ROLE_KEY: ""
       ADMIN_API_KEY: ""
@@ -37,7 +39,12 @@ jobs:
         run: python -c "import app; import app.cognition; print('Qanoni app import OK')"
 
       - name: Run cognition regression tests
-        run: python -m pytest -q tests/test_cognition.py tests/test_conversation_cognition.py tests/test_cognition_v2.py
+        run: |
+          python -m pytest -q \
+            tests/test_cognition.py \
+            tests/test_conversation_cognition.py \
+            tests/test_cognition_v2.py \
+            tests/test_llm_cognition.py
 
       - name: Run V3 regression tests
         run: |
