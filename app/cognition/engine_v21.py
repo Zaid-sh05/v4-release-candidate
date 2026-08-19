@@ -84,6 +84,62 @@ def _seed_deterministic_signals(case) -> None:
         _add_signal(case, "event.injury", "ذكر المستخدم إصابة")
 
 
+_EVENT_CUES: dict[str, tuple[str, ...]] = {
+    "entry": ("دخل", "دخول", "تسلل", "اقتحم"),
+    "breaking": ("كسر", "خلع", "حطم"),
+    "taking": ("أخذ", "اخذ", "سرق", "استولى", "استيلاء"),
+    "violence": ("ضرب", "طعن", "اعتدى", "هاجم", "اطلق", "أطلق"),
+    "death": ("توفي", "توفى", "مات", "قتل", "وفاة"),
+    "injury": ("اصيب", "أصيب", "انصاب", "جرح", "اصابة", "إصابة"),
+    "threat": ("هدد", "تهديد", "ابتزاز", "ابتز"),
+    "termination": ("فصل", "طرد", "انهى عقد العمل", "أنهى عقد العمل", "فصلني"),
+    "judgment": ("صدر الحكم", "حكمت المحكمة", "الحكم"),
+    "payment": ("دفع", "دفعت", "حول", "عربون", "مبلغ", "دينار"),
+    "communication": ("قال", "قالت", "بحكي", "رسالة", "واتساب", "ابلغ", "أبلغ"),
+}
+
+
+def _prune_semantically_invalid_llm_events(case) -> bool:
+    """Reject LLM-only event labels that are grounded textually but semantically mismatched.
+
+    Grounding alone is not enough: a model can quote "نقلوه عالمستشفى" and still label
+    it as a taking event. Hybrid events already corroborated by deterministic parsing are
+    preserved; only unsupported LLM-only labels are removed.
+    """
+    kept = []
+    changed = False
+    for event in case.events:
+        if event.source != "llm" or event.event_type == "other":
+            kept.append(event)
+            continue
+        cues = _EVENT_CUES.get(event.event_type)
+        span = event.support_span or event.text
+        if cues and not _contains(span, *cues):
+            changed = True
+            continue
+        kept.append(event)
+
+    if changed:
+        case.events = kept
+        for index, event in enumerate(case.events, start=1):
+            event.order = index
+    return changed
+
+
+def _mark_disputed_facts(case) -> bool:
+    markers = (
+        "الشرطة بتقول", "الشرطة تقول", "بتقول إني", "بتقول اني", "يقول إني", "يقول اني",
+        "يدعي", "يدّعي", "بحكي إنه", "بحكي انه", "أنا بنكر", "انا بنكر", "أنكر", "انكر",
+        "ينكر", "حسب كلام", "حسب قوله", "متهمني", "اتهمني",
+    )
+    changed = False
+    for fact in case.facts:
+        if _contains(fact.text, *markers) and not fact.disputed:
+            fact.disputed = True
+            changed = True
+    return changed
+
+
 def _is_short_ambiguous(case) -> bool:
     tokens = [token for token in case.raw_message.replace("؟", " ").replace("?", " ").split() if token]
     if case.user_goal != "legal_analysis" or len(tokens) > 6:
@@ -97,18 +153,21 @@ def _is_short_ambiguous(case) -> bool:
 
 
 class CaseCognitionEngine(BaseCaseCognitionEngine):
-    """Cognition V2.1 wrapper with deterministic semantics and conservative ambiguity gating."""
+    """Cognition V2.2 wrapper with deterministic semantics and LLM event validation."""
 
     def analyze(self, message: str, language: str = "ar"):
         case = super().analyze(message, language)
 
-        before = {(signal.code, signal.support_span) for signal in case.semantic_signals}
+        before_signals = {(signal.code, signal.support_span) for signal in case.semantic_signals}
         _seed_deterministic_signals(case)
-        after = {(signal.code, signal.support_span) for signal in case.semantic_signals}
+        after_signals = {(signal.code, signal.support_span) for signal in case.semantic_signals}
 
-        # New deterministic semantic cues can materially change competing hypotheses,
-        # retrieval planning, and clarification priority. Recompute only when needed.
-        if after != before:
+        events_changed = _prune_semantically_invalid_llm_events(case)
+        disputed_changed = _mark_disputed_facts(case)
+
+        # New semantic cues or event validation can materially change competing
+        # hypotheses, retrieval planning, and clarification priority.
+        if after_signals != before_signals or events_changed or disputed_changed:
             case.hypotheses = spot_issues(case)
             case.domains = list(dict.fromkeys(h.domain for h in case.hypotheses)) or ["general"]
             case.clarifying_questions = choose_questions(case)
