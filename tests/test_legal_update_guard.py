@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from app.legal_update_guard import LegalUpdateLedger, document_fingerprint, quality_gate
 from app.repository import repository
 from app import sync_engine
@@ -84,10 +82,13 @@ def test_sync_source_promotes_once_then_skips_unchanged(tmp_path, monkeypatch):
     monkeypatch.setattr(sync_engine.requests,'Session',FakeSession)
 
     first=sync_engine.sync_source('mol_laws',max_docs=1)
-    second=sync_engine.sync_source('mol_laws',max_docs=1)
+    assert not first['errors'], first
+    assert first['documents_rejected'] == 0, first
+    assert first['documents_new'] == 1, first
+    assert first['chunks_upserted'] > 0, first
 
-    assert first['documents_new'] == 1
-    assert first['chunks_upserted'] > 0
-    assert second['documents_unchanged'] == 1
-    assert second['chunks_upserted'] == 0
+    second=sync_engine.sync_source('mol_laws',max_docs=1)
+    assert not second['errors'], second
+    assert second['documents_unchanged'] == 1, second
+    assert second['chunks_upserted'] == 0, second
     assert len(inserted) == 1
