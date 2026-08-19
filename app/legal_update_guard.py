@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from .repository import repository, now_iso
+from .supabase_store import supabase_store
 from .text import normalize_ar
 
 
@@ -25,6 +26,7 @@ _ALLOWED_DOMAINS = {
 
 _GARBLED_MARKERS = ('�', '\x00', 'english search english', 'يرجى الانتظار')
 _LEGAL_HINT_RE = re.compile(r'(قانون|نظام|تعليمات|المادة|مادة|تشريع|law|regulation|article)', re.I)
+_ARTICLE_STRUCTURE_RE = re.compile(r'(?:المادة|مادة|article)\s*\(?\s*[0-9٠-٩]{1,4}', re.I)
 
 
 def _canonical_chunks(chunks: Iterable[tuple[str | None, str]]) -> str:
@@ -63,11 +65,12 @@ def quality_gate(*, title: str, text: str, domain: str, chunks: list[tuple[str |
         return False, 'garbled_or_boilerplate_text'
     if not _LEGAL_HINT_RE.search(f'{title} {cleaned[:2500]}'):
         return False, 'no_legal_language_detected'
+    # Government index/list pages often contain many law titles but no statutory body.
+    # They are crawl entry points, not legal evidence, so require an actual numbered
+    # article marker before automatic promotion.
+    if not _ARTICLE_STRUCTURE_RE.search(cleaned):
+        return False, 'no_statutory_article_structure'
 
-    # Statutory article splitting naturally produces many short chunks. Requiring a
-    # single article to exceed an arbitrary length rejects valid laws with concise
-    # provisions. Evaluate the extracted document as a whole while still requiring at
-    # least one non-trivial chunk so menu/navigation fragments cannot pass on volume.
     chunk_lengths = [len(' '.join((body or '').replace('\x00', ' ').split())) for _, body in chunks]
     aggregate_chunk_text = sum(chunk_lengths)
     meaningful_chunks = sum(1 for length in chunk_lengths if length >= 45)
@@ -77,11 +80,11 @@ def quality_gate(*, title: str, text: str, domain: str, chunks: list[tuple[str |
 
 
 class LegalUpdateLedger:
-    """SQLite audit ledger for official-source change detection.
+    """Audit ledger for official-source change detection.
 
-    The updater never treats a fetched page as trusted merely because it came from an
-    allowed host. A document must pass the quality gate, then its fingerprint is compared
-    with the last promoted version. This makes weekly runs idempotent and auditable.
+    Local SQLite is used in development/offline mode. When Supabase is configured the
+    persistent cloud fingerprint is authoritative, which makes stateless GitHub Actions
+    weekly runs genuinely idempotent across separate runners.
     """
 
     def ensure_tables(self) -> None:
@@ -113,8 +116,18 @@ class LegalUpdateLedger:
             con.execute('create index if not exists legal_update_events_created_idx on legal_update_events(created_at desc)')
             con.execute('create index if not exists legal_update_events_source_idx on legal_update_events(source_id, created_at desc)')
 
-    def plan(self, *, source_id: str, source_url: str, title: str, authority: str, domain: str, text: str, chunks: list[tuple[str | None, str]], source_domains: list[str] | None = None) -> UpdatePlan:
+    def _previous_fingerprint(self, source_url: str) -> str | None:
+        if supabase_store.configured:
+            return supabase_store.get_legal_sync_fingerprint(source_url)
         self.ensure_tables()
+        with repository.connect() as con:
+            row = con.execute(
+                'select fingerprint from legal_sync_fingerprints where source_url=?',
+                (source_url,),
+            ).fetchone()
+        return row['fingerprint'] if row else None
+
+    def plan(self, *, source_id: str, source_url: str, title: str, authority: str, domain: str, text: str, chunks: list[tuple[str | None, str]], source_domains: list[str] | None = None) -> UpdatePlan:
         fingerprint = document_fingerprint(
             title=title,
             authority=authority,
@@ -131,25 +144,45 @@ class LegalUpdateLedger:
         )
         if not accepted:
             return UpdatePlan('rejected', fingerprint, reason)
-        with repository.connect() as con:
-            row = con.execute(
-                'select fingerprint from legal_sync_fingerprints where source_url=?',
-                (source_url,),
-            ).fetchone()
-        if not row:
+        previous = self._previous_fingerprint(source_url)
+        if not previous:
             return UpdatePlan('new', fingerprint, 'first_seen')
-        if row['fingerprint'] == fingerprint:
+        if previous == fingerprint:
             return UpdatePlan('unchanged', fingerprint, 'same_fingerprint')
         return UpdatePlan('changed', fingerprint, 'content_changed')
 
     def record(self, *, source_id: str, source_url: str, title: str, domain: str, plan: UpdatePlan, promoted: bool = False, details: dict | None = None) -> None:
         self.ensure_tables()
         now = now_iso()
+        details = details or {}
+
+        if supabase_store.configured:
+            supabase_store.log_legal_update_event(
+                source_id=source_id,
+                source_url=source_url,
+                title=title,
+                domain=domain,
+                action=plan.action,
+                fingerprint=plan.fingerprint,
+                reason=plan.reason,
+                details=details,
+                created_at=now,
+            )
+            if promoted and plan.action in {'new', 'changed'}:
+                supabase_store.upsert_legal_sync_fingerprint(
+                    source_url=source_url,
+                    source_id=source_id,
+                    title=title,
+                    domain=domain,
+                    fingerprint=plan.fingerprint,
+                    promoted_at=now,
+                )
+
         with repository.connect() as con:
             con.execute(
                 '''insert into legal_update_events(source_id,source_url,title,domain,action,fingerprint,reason,details_json,created_at)
                    values(?,?,?,?,?,?,?,?,?)''',
-                (source_id, source_url, title, domain, plan.action, plan.fingerprint, plan.reason, json.dumps(details or {}, ensure_ascii=False), now),
+                (source_id, source_url, title, domain, plan.action, plan.fingerprint, plan.reason, json.dumps(details, ensure_ascii=False), now),
             )
             if promoted and plan.action in {'new', 'changed'}:
                 con.execute(

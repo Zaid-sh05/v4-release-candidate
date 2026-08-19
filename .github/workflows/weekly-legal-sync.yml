@@ -1,0 +1,57 @@
+name: Qanoni Weekly Official Legal Sync
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 0'
+      timezone: 'Asia/Amman'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qanoni-weekly-legal-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      APP_ENV: weekly-legal-sync
+      RUNTIME_STORE: sqlite
+      OPENAI_API_KEY: ""
+      GROQ_API_KEY: ""
+      COGNITION_LLM_PROVIDER: off
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ADMIN_API_KEY: ""
+      PYTHONPATH: ${{ github.workspace }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install updater dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Verify persistent cloud updater
+        run: |
+          python - <<'PY'
+          from app.supabase_store import supabase_store
+          if not supabase_store.configured:
+              raise SystemExit('Supabase secrets are missing from GitHub Actions.')
+          supabase_store.get_legal_sync_fingerprint('__qanoni_updater_schema_probe__')
+          print('Persistent Supabase updater ledger: OK')
+          PY
+
+      - name: Crawl official Jordanian legal sources
+        run: python scripts/sync_all.py --max-docs 80 --require-cloud

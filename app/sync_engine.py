@@ -9,6 +9,7 @@ from .config import settings
 from .repository import repository
 from .document_classifier import classify_document
 from .legal_update_guard import legal_update_ledger
+from .supabase_store import supabase_store
 from .text import pretty_title
 
 ALLOWED_HOSTS={
@@ -70,7 +71,6 @@ def candidate(href:str,label:str)->bool:
     blob=f'{href} {label}'.lower(); return any(h.lower() in blob for h in LEGAL_HINTS)
 
 def choose_domain(title:str,text:str,source:dict)->str:
-    # Whole-document classification only. A document is never split across legal domains.
     domain, _, _ = classify_document(title,text,source_domains=source.get('domains',[]),authority=source.get('authority',''))
     return domain
 
@@ -81,7 +81,7 @@ def sync_source(source_id:str,max_docs:int|None=None):
         raise ValueError('This source is registered as a reference-only source and needs a dedicated connector.')
     if not safe_url(source['url']): raise ValueError('Source URL is outside the official allowlist.')
     max_docs=max_docs or settings.sync_max_docs_per_source
-    q=deque([source['url']]); seen=set(); docs=0; inserted=0; errors=[]
+    q=deque([source['url']]); seen=set(); docs=0; inserted=0; cloud_inserted=0; errors=[]
     counters={'new':0,'changed':0,'unchanged':0,'rejected':0}
     session=requests.Session(); session.headers.update({'User-Agent':settings.sync_user_agent,'Accept':'text/html,application/xhtml+xml,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document;q=0.9,*/*;q=0.8'})
     while q and docs<max_docs:
@@ -113,9 +113,21 @@ def sync_source(source_id:str,max_docs:int|None=None):
             if plan.action=='rejected':
                 legal_update_ledger.record(source_id=source_id,source_url=r.url,title=title,domain=domain,plan=plan,promoted=False)
             elif plan.action=='unchanged':
-                # Record the event for audit visibility, but do not rewrite the corpus.
                 legal_update_ledger.record(source_id=source_id,source_url=r.url,title=title,domain=domain,plan=plan,promoted=False)
             else:
+                # Persistent cloud promotion comes first when configured. If it fails,
+                # the fingerprint is not advanced and the next weekly run retries safely.
+                cloud_count=0
+                if supabase_store.configured:
+                    cloud_count=supabase_store.replace_legal_document_chunks(
+                        title=title,
+                        authority=source['authority'],
+                        domain=domain,
+                        source_url=r.url,
+                        chunks=pieces,
+                        source_kind='official_sync',
+                    )
+                    cloud_inserted+=cloud_count
                 chunk_count=repository.upsert_document_chunks(title=title,authority=source['authority'],domain=domain,source_url=r.url,chunks=pieces,source_kind='official_sync')
                 inserted+=chunk_count
                 legal_update_ledger.record(
@@ -125,7 +137,7 @@ def sync_source(source_id:str,max_docs:int|None=None):
                     domain=domain,
                     plan=plan,
                     promoted=True,
-                    details={'chunks_upserted':chunk_count},
+                    details={'sqlite_chunks_upserted':chunk_count,'cloud_chunks_promoted':cloud_count},
                 )
             for href,label in links:
                 absolute=urljoin(r.url,href)
@@ -143,5 +155,6 @@ def sync_source(source_id:str,max_docs:int|None=None):
         'documents_unchanged':counters['unchanged'],
         'documents_rejected':counters['rejected'],
         'chunks_upserted':inserted,
+        'cloud_chunks_promoted':cloud_inserted,
         'errors':errors[:15],
     }
