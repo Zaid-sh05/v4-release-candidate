@@ -5,6 +5,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query, Header
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.routing import Mount
 from .config import ROOT, settings
 from .models import ChatRequest, ChatResponse, FeedbackRequest
 from .chat_v4 import handle_chat
@@ -19,13 +20,41 @@ from .runtime_store import runtime_store
 STATIC=ROOT/'static'
 MCP_SERVERS=build_mcp_servers()
 MCP_APPS={name:server.streamable_http_app(stateless_http=True,json_response=True) for name,server in MCP_SERVERS.items()}
+MCP_DOMAINS=tuple(MCP_SERVERS)
+
+
+def _replace_mcp_mount_apps(app:FastAPI, fresh_apps:dict[str,object])->None:
+    """Point stable /mcp mounts at freshly-created MCP ASGI apps.
+
+    StreamableHTTPSessionManager.run() is intentionally single-use. FastAPI's app
+    object, however, can be started more than once in tests and some process managers.
+    Rebuilding the MCP server instances per lifespan prevents a completed manager from
+    being reused while keeping the public mount paths stable.
+    """
+    for route in app.routes:
+        if not isinstance(route,Mount) or not route.path.startswith('/mcp/'):
+            continue
+        domain=route.path.removeprefix('/mcp/')
+        fresh=fresh_apps.get(domain)
+        if fresh is not None:
+            route.app=fresh
+
 
 @asynccontextmanager
 async def lifespan(app:FastAPI)->AsyncIterator[None]:
+    # Never reuse the module-level MCP session managers: the MCP SDK guarantees that
+    # each StreamableHTTPSessionManager.run() instance is entered at most once.
+    active_servers=build_mcp_servers()
+    active_apps={name:server.streamable_http_app(stateless_http=True,json_response=True) for name,server in active_servers.items()}
+    _replace_mcp_mount_apps(app,active_apps)
+    app.state.mcp_servers=active_servers
     async with AsyncExitStack() as stack:
-        for server in MCP_SERVERS.values():
+        for server in active_servers.values():
             await stack.enter_async_context(server.session_manager.run())
-        yield
+        try:
+            yield
+        finally:
+            app.state.mcp_servers={}
 
 app=FastAPI(title='Qanoni | قانوني Pilot API',version=settings.app_version,docs_url='/api/docs',redoc_url=None,lifespan=lifespan)
 app.mount('/static',StaticFiles(directory=STATIC),name='static')
@@ -50,7 +79,7 @@ def sw(): return FileResponse(STATIC/'sw.js',media_type='application/javascript'
 
 @app.get('/api/health')
 def health():
-    return {'status':'ok','app':settings.app_name,'version':settings.app_version,'environment':settings.app_env,'llm':'configured' if settings.openai_api_key else 'not_configured','supabase':supabase_store.health(),'runtime_store':runtime_store.active_name,'admin_sync_enabled':bool(settings.admin_api_key),'mcp':{'enabled':bool(MCP_SERVERS),'servers':list(MCP_SERVERS)},'corpus':repository.stats()}
+    return {'status':'ok','app':settings.app_name,'version':settings.app_version,'environment':settings.app_env,'llm':'configured' if settings.openai_api_key else 'not_configured','supabase':supabase_store.health(),'runtime_store':runtime_store.active_name,'admin_sync_enabled':bool(settings.admin_api_key),'mcp':{'enabled':bool(MCP_DOMAINS),'servers':list(MCP_DOMAINS)},'corpus':repository.stats()}
 
 @app.get('/api/domains')
 def domains(): return [{'id':d,'label_ar':x['ar'],'label_en':x['en'],'tools':['search_official_law','get_article','list_official_sources']} for d,x in DOMAIN_LABELS.items()]
