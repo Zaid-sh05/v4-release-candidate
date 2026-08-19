@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.routing import Mount
 from .config import ROOT, settings
 from .models import ChatRequest, ChatResponse, FeedbackRequest
-from .chat import handle_chat
+from .chat_v4 import handle_chat
 from .repository import repository
 from .router import DOMAIN_LABELS
 from .mcp_runtime import build_mcp_servers
