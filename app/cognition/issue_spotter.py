@@ -42,16 +42,57 @@ def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
         or "event.death" in signals
         or _contains(text, "قتل", "توفى", "توفي", "مات", "وفاة")
     )
-    intentional_markers = (
-        bool({"intentional", "premeditated"} & event_intents)
-        or bool({"intent.intentional", "intent.premeditated"} & signals)
-        or _contains(text, "قصداً", "قصدا", "متعمد", "عمد", "خطط", "سبق الإصرار", "سبق الاصرار")
+
+    # Keep intent hypotheses distinct. A bare substring such as "عمد" must not turn
+    # "دون أن أتعمد" into evidence of intentional homicide. Explicit negation of
+    # death intent should instead make the unintentional hypothesis stronger while
+    # preserving intentional homicide as a weaker competing hypothesis.
+    premeditated_markers = (
+        "premeditated" in event_intents
+        or "intent.premeditated" in signals
+        or _contains(text, "خطط", "سبق الإصرار", "سبق الاصرار", "انتظر لقتله", "حضّر لقتله", "حضر لقتله")
     )
-    accidental_markers = (
+    explicit_non_intent = (
         "accidental" in event_intents
         or "intent.accidental" in signals
-        or _contains(text, "بالغلط", "خطأ", "حادث", "دون قصد", "غير مقصود")
+        or _contains(
+            text,
+            "بالغلط",
+            "خطأ",
+            "حادث",
+            "دون قصد",
+            "بدون قصد",
+            "غير مقصود",
+            "دون أن أتعمد",
+            "دون ان اتعمد",
+            "لم أقصد",
+            "لم اقصد",
+            "ما كنت أقصد",
+            "ما كنت اقصد",
+            "ما قصدت",
+            "لم أتعمد",
+            "لم اتعمد",
+        )
     )
+    affirmative_intent = (
+        "intentional" in event_intents
+        or "intent.intentional" in signals
+        or _contains(
+            text,
+            "قصداً",
+            "قصدا",
+            "عمداً",
+            "عمدا",
+            "قتل عمد",
+            "متعمد",
+            "تعمد قتله",
+            "قاصداً قتله",
+            "قاصدا قتله",
+        )
+    )
+    intentional_markers = premeditated_markers or affirmative_intent
+    accidental_markers = explicit_non_intent
+
     self_defense_markers = (
         "self_defense_claim" in event_intents
         or "intent.self_defense_claim" in signals
@@ -59,6 +100,24 @@ def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
     )
 
     if death_present:
+        if premeditated_markers:
+            intentional_confidence = 0.92
+            unintentional_confidence = 0.20
+        elif intentional_markers and accidental_markers:
+            # Mixed evidence can happen when the user intended an assault but explicitly
+            # denied intending the death. Do not collapse that into a final legal finding.
+            intentional_confidence = 0.58
+            unintentional_confidence = 0.74
+        elif intentional_markers:
+            intentional_confidence = 0.82
+            unintentional_confidence = 0.30
+        elif accidental_markers:
+            intentional_confidence = 0.30
+            unintentional_confidence = 0.84
+        else:
+            intentional_confidence = 0.42
+            unintentional_confidence = 0.35
+
         hypotheses.append(LegalHypothesis(
             code="criminal.intentional_homicide",
             label_ar="قتل قصدي/عمد محتمل",
@@ -66,8 +125,8 @@ def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
             rationale=["وجود وفاة أو قتل ضمن الوقائع"],
             missing_elements=[] if intentional_markers else ["طبيعة القصد وقت الفعل", "كيفية وقوع الفعل والأداة والظروف"],
             contradictions=["وجود وصف أو إشارة بأن الواقعة غير مقصودة"] if accidental_markers else [],
-            confidence=0.80 if intentional_markers else 0.42,
-            status="candidate" if intentional_markers else "needs_clarification",
+            confidence=intentional_confidence,
+            status="candidate" if intentional_confidence >= 0.65 else "needs_clarification",
         ))
         hypotheses.append(LegalHypothesis(
             code="criminal.unintentional_death",
@@ -76,8 +135,8 @@ def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
             rationale=["يجب استبعاد أو إثبات القصد قبل التكييف النهائي"],
             missing_elements=[] if accidental_markers else ["هل أراد الفاعل إحداث الوفاة أو الأذى؟", "هل وقع إهمال أو رعونة أو مخالفة واجب؟"],
             contradictions=["وجود تخطيط أو قصد ظاهر"] if intentional_markers else [],
-            confidence=0.80 if accidental_markers else 0.35,
-            status="candidate" if accidental_markers else "needs_clarification",
+            confidence=unintentional_confidence,
+            status="candidate" if unintentional_confidence >= 0.65 else "needs_clarification",
         ))
         if self_defense_markers:
             hypotheses.append(LegalHypothesis(
