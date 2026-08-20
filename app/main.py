@@ -110,11 +110,14 @@ def search(q:str=Query(min_length=2),domain:str='general',limit:int=8):
         raise HTTPException(status_code=400,detail='Unknown legal domain.')
     bounded=min(max(limit,1),20)
     results=[]
+    store='sqlite'
     if supabase_store.configured:
         results=supabase_store.keyword_search(q,[domain],bounded)
+        if results:
+            store='supabase'
     if not results:
         results=repository.search(q,[domain],bounded)
-    return {'query':q,'domain':domain,'store':'supabase' if supabase_store.configured and results and isinstance(results[0],dict) else 'sqlite','results':results}
+    return {'query':q,'domain':domain,'store':store,'results':results}
 @app.post('/api/chat',response_model=ChatResponse)
 def chat(req:ChatRequest): return handle_chat(req)
 
