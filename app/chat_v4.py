@@ -94,19 +94,17 @@ def _v4_retrieval_fallback(message, route, sources):
 
 
 def _should_use_openai_writer(message, route, case=None) -> bool:
-    """Spend model latency only where synthesis materially improves the legal answer."""
+    """Use the paid writer only when broad legal synthesis materially improves the answer.
+
+    Complex narratives stay on the deterministic lawyer-case-analysis path. It is faster,
+    already case-aware, and avoids stacking a remote generation call on every long message.
+    """
     if route.intent in {'penalty','deadline','appeal_deadline','fees','judgment'}:
         return False
     try:
-        if _legacy_chat._needs_broad_synthesis(message, route):
-            return True
+        return bool(_legacy_chat._needs_broad_synthesis(message, route))
     except Exception:
-        pass
-    # Long fact patterns benefit from the writer because cognition has already built the case graph.
-    compact=' '.join((message or '').split())
-    if case is not None and len(compact) >= 120:
-        return True
-    return False
+        return False
 
 
 def _v4_generate_answer(message, route, sources, history, *, draft_answer=None, case=None):
