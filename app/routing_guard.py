@@ -205,7 +205,24 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
     appeal = _has(text, "استئناف", "استأنف", "استانف", "تمييز", "طعن", "appeal", "cassation")
     complaint = _has(text, "شكوى", "المدعي العام", "مدعي عام", "نيابة عامة", "ادعاء عام", "complaint", "prosecutor")
     personal = _has(text, "طلاق", "خلع", "نفقة", "حضانة", "زواج", "مطلقة", "طليقي", "محكمة شرعية", "divorce", "custody", "alimony")
-    labor = _has(text, "فصلني", "طردني", "الفصل", "سبب الفصل", "صاحب العمل", "عقد عمل", "راتب", "اجر", "إنذار مكتوب", "انذار مكتوب", "ضعف الاداء", "employer", "fired", "dismissed")
+    # Decomposed termination concept (verb-class + employment-object-class) alongside the fixed
+    # phrases below: "أنهت الشركة خدماتي" (ended my services) never says "فصلني"/"طردني" literally,
+    # but is the same underlying event as long as a termination verb and an employment object
+    # co-occur, regardless of which specific paraphrase or conjugation was used.
+    termination_verb = _has(text, "فصل", "طرد", "انه", "سرح", "استغنى", "terminated", "let go") or contains_fuzzy(
+        text, "فصل", "طرد", "انه", "سرح", "استغنى", "terminated", "let go",
+    )
+    employment_object = _has(
+        text, "خدماتي", "خدمتي", "عقدي", "عقد العمل", "وظيفتي", "عملي", "شغلي",
+        "my job", "my contract", "my employment",
+    ) or contains_fuzzy(
+        text, "خدماتي", "خدمتي", "عقدي", "عقد العمل", "وظيفتي", "عملي", "شغلي",
+        "my job", "my contract", "my employment",
+    )
+    labor = _has(
+        text, "فصلني", "طردني", "الفصل", "سبب الفصل", "صاحب العمل", "عقد عمل", "راتب", "اجر",
+        "إنذار مكتوب", "انذار مكتوب", "ضعف الاداء", "employer", "fired", "dismissed",
+    ) or (termination_verb and employment_object)
     traffic = _traffic_context(text)
     property_crime = _property_crime_context(text)
     threat_terms = (

@@ -117,3 +117,26 @@ def test_gender_varied_subject_conjugation_does_not_break_threat_detection():
     male = route_query("سامر هددني عبر تطبيق غير معروف إنه رح ينشر صوري إذا ما دفعتله")
     female = route_query("هبة هددتني عبر تطبيق غير معروف إنها رح تنشر صوري إذا ما دفعتلها")
     assert male.primary_domain == female.primary_domain == "cyber"
+
+
+def test_employment_termination_paraphrase_is_not_dependent_on_fixed_phrase():
+    # A sibling gap in the same class: labor routing required the literal "فصلني"/"طردني", so
+    # "أنهت الشركة خدماتي" (the company ended my services) fell through to a different domain
+    # despite describing the same underlying event. Decomposed into termination-verb +
+    # employment-object components instead of enumerating every paraphrase.
+    cases = [
+        "أنهت الشركة خدماتي بدون سبب واضح ولا عطتني تعويض",
+        "انهى صاحب العمل عقدي فجأة بدون انذار",
+        "سرحوني من شغلي من غير سبب",
+    ]
+    for message in cases:
+        route = route_query(message)
+        assert route.primary_domain == "labor", (message, route.primary_domain)
+
+
+def test_unrelated_use_of_the_termination_verb_root_does_not_misfire_into_labor():
+    # Negative control: the termination-verb component alone must not be sufficient; it needs
+    # an employment-object co-occurring, or an unrelated "انهى" (a judge ending a session) would
+    # falsely classify as a labor dispute.
+    route = route_query("انهى القاضي الجلسة وقال بيصدر الحكم لاحقا")
+    assert route.primary_domain != "labor"

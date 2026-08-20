@@ -11,6 +11,7 @@ _ARABIC_CHAR_RE = re.compile(r"[\u0600-\u06ff]")
 _SHORT_VERB_STEMS = {
     "اخذ", "اخد", "كسر", "دخل", "ضرب", "قتل", "سرق", "طعن", "مات",
     "هدد", "نشر", "دفع", "فضح", "سرب", "حول",
+    "فصل", "طرد", "سرح", "انه",
 }
 # Attached object-pronoun/subject suffixes Arabic verbs commonly take (هددني، هددتني،
 # هددوني...). Longest first so "تني" strips before the shorter "ني" would leave a stray "ت".
