@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# Re-run this gate after every grounded-writer validation or composer change.
 from pathlib import Path
 import sys
 import time
