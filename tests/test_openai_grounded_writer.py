@@ -157,7 +157,7 @@ def test_generate_answer_falls_back_when_model_invents_article(monkeypatch):
     assert result is None
 
 
-def test_v4_writer_policy_skips_short_direct_questions_and_keeps_high_value_synthesis():
+def test_v4_writer_policy_uses_openai_for_synthesis_not_every_long_case():
     from app import chat_v4
 
     direct=_route('procedure')
@@ -170,7 +170,7 @@ def test_v4_writer_policy_skips_short_direct_questions_and_keeps_high_value_synt
         'قام صاحب العمل بإنهاء خدمة العامل بعد خلاف طويل، وذكر سبباً مختلفاً في كتاب الفصل '
         'عن السبب الذي أرسله في الرسائل، ويوجد شهود ورسائل ويريد العامل معرفة وضعه القانوني.'
     )
-    assert chat_v4._should_use_openai_writer(long_case,overview,SimpleNamespace()) is True
+    assert chat_v4._should_use_openai_writer(long_case,overview,SimpleNamespace()) is False
 
 
 def test_v4_short_query_skips_embedding_round_trip(monkeypatch):
