@@ -56,12 +56,7 @@ def _source_is_usable(source:SourceItem)->bool:
 
 
 def _guard_sources(route:RouteResult,sources:list[SourceItem])->list[SourceItem]:
-    """Keep only readable sources that belong to the active legal route.
-
-    This is a safety/quality boundary, not a relevance model. In highly specialized domains such
-    as cybercrime, a general criminal article may never displace an available cyber source merely
-    because it contains generic words like threat, money, images, or punishment.
-    """
+    """Keep only readable sources that belong to the active legal route."""
     allowed=set(route.domains or [route.primary_domain])
     cleaned=[]; seen=set()
     for source in sources:
@@ -74,7 +69,6 @@ def _guard_sources(route:RouteResult,sources:list[SourceItem])->list[SourceItem]
         primary=[s for s in cleaned if s.domain==route.primary_domain]
         if primary:
             return primary
-        # For a specialized question, no answer is safer than silently substituting another field.
         return []
     return cleaned
 
@@ -259,29 +253,48 @@ def handle_chat(req:ChatRequest)->ChatResponse:
             case_analysis_eval=evaluate_answer(effective_message,route,case_analysis.text,best_sources)
 
     history=runtime_store.history(cid,8)
-    answer=None
     cognition_suffix='-cognition' if case and case.cognition_provider!='deterministic' else ''
-    mode=('official-adaptive-extractive' if used_adaptive else 'official-self-checked-extractive')+cognition_suffix
+    extractive_mode=('official-adaptive-extractive' if used_adaptive else 'official-self-checked-extractive')+cognition_suffix
 
+    # First build the safest deterministic answer. OpenAI is allowed to improve the writing and
+    # synthesis afterwards, but it never becomes the source of legal truth.
+    base_answer=None
+    base_eval=best_eval
+    base_mode=extractive_mode
     if case_analysis and case_analysis_eval and case_analysis_eval.passed:
-        answer=case_analysis.text
-        best_eval=case_analysis_eval
-        mode='official-case-analysis'+cognition_suffix
+        base_answer=case_analysis.text
+        base_eval=case_analysis_eval
+        base_mode='official-case-analysis'+cognition_suffix
     elif best_grounded and best_eval and best_eval.passed and (best_grounded.strength=='strong' or best_eval.score>=0.84):
-        answer=best_grounded.text
+        base_answer=best_grounded.text
+    elif best_grounded:
+        base_answer=best_grounded.text
     else:
-        llm_answer=generate_answer(effective_message,route,best_sources,history)
-        if llm_answer:
-            llm_eval=evaluate_answer(effective_message,route,llm_answer,best_sources)
-            if llm_eval.passed and (best_eval is None or llm_eval.score>=best_eval.score):
-                answer=llm_answer
-                best_eval=llm_eval
-                mode='official-self-checked-hybrid-rag'+cognition_suffix
-        if not answer and best_grounded:
-            answer=best_grounded.text
-        if not answer:
-            critical={'penalty','deadline','appeal_deadline','fees','judgment','rights'}
-            answer=insufficient_answer(effective_message,route,best_sources) if route.intent in critical else retrieval_fallback(effective_message,route,best_sources)
+        critical={'penalty','deadline','appeal_deadline','fees','judgment','rights'}
+        base_answer=insufficient_answer(effective_message,route,best_sources) if route.intent in critical else retrieval_fallback(effective_message,route,best_sources)
+        base_eval=evaluate_answer(effective_message,route,base_answer,best_sources)
+
+    answer=base_answer
+    mode=base_mode
+
+    # With an API key configured, use the frontier model as a grounded legal writer over the
+    # deterministic draft + case graph + official excerpts. The LLM layer self-disables on any
+    # citation/number grounding violation and the deterministic answer remains the fallback.
+    llm_answer=generate_answer(
+        effective_message,
+        route,
+        best_sources,
+        history,
+        draft_answer=base_answer,
+        case=case,
+    )
+    if llm_answer:
+        llm_eval=evaluate_answer(effective_message,route,llm_answer,best_sources)
+        floor=max(0.62,(base_eval.score-0.15) if base_eval else 0.62)
+        if llm_eval.passed and llm_eval.score>=floor:
+            answer=llm_answer
+            best_eval=llm_eval
+            mode='official-openai-grounded-writer'+cognition_suffix
 
     answer=strip_emoji_style(answer or insufficient_answer(effective_message,route,best_sources))
     final_eval=evaluate_answer(effective_message,route,answer,best_sources)
