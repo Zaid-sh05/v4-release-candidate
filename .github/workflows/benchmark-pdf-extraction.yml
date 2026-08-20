@@ -1,0 +1,35 @@
+name: Qanoni PDF Extraction Benchmark (read-only, manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      pdf_url:
+        description: 'Official PDF URL to benchmark (defaults to the Civil Code PDF)'
+        required: false
+        default: ''
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BENCHMARK_PDF_URL: ${{ github.event.inputs.pdf_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pdfplumber
+
+      - name: Run PDF extraction benchmark
+        run: python scripts/benchmark_pdf_extraction.py

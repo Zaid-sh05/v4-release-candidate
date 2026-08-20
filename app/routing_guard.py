@@ -204,44 +204,59 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
 
     appeal = _has(text, "استئناف", "استأنف", "استانف", "تمييز", "طعن", "appeal", "cassation")
     complaint = _has(text, "شكوى", "المدعي العام", "مدعي عام", "نيابة عامة", "ادعاء عام", "complaint", "prosecutor")
-    personal = _has(text, "طلاق", "خلع", "نفقة", "حضانة", "زواج", "مطلقة", "طليقي", "محكمة شرعية", "divorce", "custody", "alimony")
-    # Decomposed termination concept (verb-class + employment-object-class) alongside the fixed
-    # phrases below: "أنهت الشركة خدماتي" (ended my services) never says "فصلني"/"طردني" literally,
-    # but is the same underlying event as long as a termination verb and an employment object
-    # co-occur, regardless of which specific paraphrase or conjugation was used.
-    termination_verb = _has(text, "فصل", "طرد", "انه", "سرح", "استغنى", "terminated", "let go") or contains_fuzzy(
-        text, "فصل", "طرد", "انه", "سرح", "استغنى", "terminated", "let go",
+    personal_terms = (
+        "طلاق", "أطلق", "اطلق", "خلع", "نفقة", "حضانة", "زواج", "مطلقة", "طليقي", "محكمة شرعية",
+        "اشوف ولادي", "يشوف ولاده", "رؤية الأولاد", "رؤية الاولاد", "مشاهدة الأولاد", "مشاهدة الاولاد",
+        "divorce", "custody", "alimony", "visitation",
     )
-    employment_object = _has(
-        text, "خدماتي", "خدمتي", "عقدي", "عقد العمل", "وظيفتي", "عملي", "شغلي",
-        "my job", "my contract", "my employment",
-    ) or contains_fuzzy(
-        text, "خدماتي", "خدمتي", "عقدي", "عقد العمل", "وظيفتي", "عملي", "شغلي",
-        "my job", "my contract", "my employment",
+    labor_terms = ("فصلني", "طردني", "الفصل", "سبب الفصل", "صاحب العمل", "عقد عمل", "الشغل", "راتب", "اجر", "إنذار مكتوب", "انذار مكتوب", "ضعف الاداء", "employer", "fired", "dismissed")
+    cyber_terms = (
+        "واتساب", "انستغرام", "فيسبوك", "ابتزاز", "ابتزني", "ببتزني", "يبتزني",
+        "اختراق", "تهكير", "whatsapp", "online blackmail", "cybercrime",
     )
-    labor = _has(
-        text, "فصلني", "طردني", "الفصل", "سبب الفصل", "صاحب العمل", "عقد عمل", "راتب", "اجر",
-        "إنذار مكتوب", "انذار مكتوب", "ضعف الاداء", "employer", "fired", "dismissed",
-    ) or (termination_verb and employment_object)
-    traffic = _traffic_context(text)
-    property_crime = _property_crime_context(text)
     threat_terms = (
         "هدد", "هددني", "يهددني", "بهددني", "بتهددني", "تهديد",
         "ابتزاز", "ابتزني", "ببتزني", "يبتزني", "مبتزني",
         "threat", "blackmail", "extortion",
     )
-    threat = _has(text, *threat_terms) or contains_fuzzy(text, *threat_terms)
-    cyber = _has(
-        text,
-        "واتساب", "انستغرام", "فيسبوك", "ابتزاز", "ابتزني", "ببتزني", "يبتزني",
-        "اختراق", "تهكير", "whatsapp", "online blackmail", "cybercrime",
-    ) or (threat and _digital_medium_context(text))
-    violence = _has(text, "قتل", "قتله", "اعتداء", "ضرب", "ضربني", "طعن", "هاجمني", "سلاح", "سرقة", "سرقت", "سرق", "murder", "assault", "theft")
-    taking = _has(text, "أخذ", "اخذ", "اخد", "أخذت", "اخذت", "سرق", "سرقت", "استولى", "took", "stole")
-    forced_entry = _has(text, "كسر", "كسر قفل", "خلع", "دخل البيت", "دخل المنزل", "تسلل", "اقتحم", "forced entry")
-    self_defense = _has(text, "دفاع عن نفسي", "دفاعا عن نفسي", "هاجمني", "self defense", "self-defense")
-    injury = _has(text, "اصابة", "إصابة", "انصاب", "اصيب", "أصيب", "جرح", "المستشفى", "injury", "injured", "hospital")
-    death = _has(text, "وفاة", "توفي", "توفى", "مات", "قتل", "death", "died", "killed")
+    violence_terms = ("قتل", "قتله", "اعتداء", "ضرب", "ضربني", "طعن", "هاجمني", "سلاح", "سرقة", "سرقت", "سرق", "murder", "assault", "theft")
+    taking_terms = ("أخذ", "اخذ", "اخد", "أخذت", "اخذت", "سرق", "سرقت", "استولى", "took", "stole")
+    forced_entry_terms = ("كسر", "كسر قفل", "خلع", "دخل البيت", "دخل المنزل", "تسلل", "اقتحم", "forced entry")
+    self_defense_terms = ("دفاع عن نفسي", "دفاعا عن نفسي", "هاجمني", "self defense", "self-defense")
+    injury_terms = ("اصابة", "إصابة", "انصاب", "اصيب", "أصيب", "جرح", "المستشفى", "injury", "injured", "hospital")
+    death_terms = ("وفاة", "توفي", "توفى", "مات", "قتل", "death", "died", "killed")
+    # Decomposed termination concept (verb-class + employment-object-class) alongside the fixed
+    # phrases in labor_terms: "أنهت الشركة خدماتي" (ended my services) never says "فصلني"/"طردني"
+    # literally, but is the same underlying event as long as a termination verb and an
+    # employment object co-occur, regardless of which specific paraphrase or conjugation was used.
+    termination_verb_terms = ("فصل", "طرد", "انه", "سرح", "استغنى", "terminated", "let go")
+    employment_object_terms = (
+        "خدماتي", "خدمتي", "عقدي", "عقد العمل", "وظيفتي", "عملي", "شغلي",
+        "my job", "my contract", "my employment",
+    )
+
+    # Dialect/typo tolerance must be applied uniformly across every domain guard, not only
+    # traffic/property-crime, otherwise personal-status, labor and cyber routing silently
+    # loses the same conservative fuzzy matching the rest of the router already relies on.
+    def _matches(*phrases: str) -> bool:
+        return _has(text, *phrases) or contains_fuzzy(text, *phrases)
+
+    personal = _matches(*personal_terms)
+    termination_verb = _matches(*termination_verb_terms)
+    employment_object = _matches(*employment_object_terms)
+    labor = _matches(*labor_terms) or (termination_verb and employment_object)
+    traffic = _traffic_context(text)
+    property_crime = _property_crime_context(text)
+    threat = _matches(*threat_terms)
+    # An unnamed/unseen digital medium ("عبر تطبيق ما بعرفه") plus threat language is the same
+    # underlying cyber-extortion narrative as a named platform, so it must route the same way.
+    cyber = _matches(*cyber_terms) or (threat and _digital_medium_context(text))
+    violence = _matches(*violence_terms)
+    taking = _matches(*taking_terms)
+    forced_entry = _matches(*forced_entry_terms)
+    self_defense = _matches(*self_defense_terms)
+    injury = _matches(*injury_terms)
+    death = _matches(*death_terms)
 
     if appeal:
         extras: list[str] = []

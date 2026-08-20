@@ -69,6 +69,83 @@ def test_unknown_actor_is_not_invented_from_ambiguous_burglary_story():
     assert {"entry", "breaking", "taking"}.issubset({e.event_type for e in case.events})
 
 
+def test_attached_preposition_pronouns_are_not_extracted_as_person_actors():
+    # Real gap: the regex-based actor extractor captures whatever word follows a trigger verb
+    # (أخذ, اتصل...), and attached preposition+pronoun objects ("from him", "with her") were not
+    # in the non-person blocklist, so "أخذ منه القفل" invented a fake person actor "منه".
+    case = CaseCognitionEngine(enable_llm=False).analyze("ذهب زيد لوالده وأخذ منه القفل")
+    labels = {a.label for a in case.actors}
+    assert "منه" not in labels
+    assert "لوالده" not in labels
+
+
+def test_plural_police_statement_is_not_misread_as_property_taking():
+    # Same defect class the handoff explicitly forbids ("تم أخذ أقواله" must never become
+    # theft), reappearing under plural conjugation: "أخذوا أقواله" (they took his statement,
+    # plural) wasn't close enough to the singular "أخذ أقواله" blocklist entries for fuzzy
+    # matching to bridge, so a false "taking" (property theft) event survived pruning.
+    case = CaseCognitionEngine(enable_llm=False).analyze("رجال الشرطة أخذوا أقواله وسجلوا إفادته")
+    event_types = {e.event_type for e in case.events}
+    assert event_types == {"statement"}
+
+
+def test_real_taking_survives_when_a_false_statement_context_shares_its_span():
+    # Guards against over-correcting the fix above: a message with BOTH genuine property
+    # taking and a later false-context statement mention must keep the real taking event.
+    case = CaseCognitionEngine(enable_llm=False).analyze(
+        "اقتحم المنزل واخذ الحاسوب، وبعدها اخذوا اقواله في المركز"
+    )
+    event_types = {e.event_type for e in case.events}
+    assert "taking" in event_types
+    assert "statement" in event_types
+
+
+def test_named_parties_are_captured_in_verb_subject_narrative_order():
+    # Phase 7 probe against the handoff's own reference complex scenario surfaced this: Arabic
+    # narrative commonly puts the verb before the subject ("طلب عدي مبلغ", "أصيب عدي"), which the
+    # original trigger-verb list never covered, silently dropping the story's central named party
+    # from the actors list entirely (a false negative, not a false attribution, but it directly
+    # weakens the "parties" section of any case analysis built from this fact pattern).
+    case = CaseCognitionEngine(enable_llm=False).analyze(
+        "أصيب عدي بجرح بسيط في الوجه. لاحقا طلب عدي مبلغ مالي مقابل الاستمرار على أقواله."
+    )
+    labels = {a.label for a in case.actors}
+    assert "عدي" in labels
+
+
+def test_unanchored_trigger_word_does_not_match_inside_a_longer_word():
+    # Regression for a bug the fix above exposed: "بيت" (house) as a trigger word had no word
+    # boundary, so it matched as a substring inside "البيت" (the house) and then captured
+    # whatever word happened to follow it as a fake person actor.
+    case = CaseCognitionEngine(enable_llm=False).analyze(
+        "حدا دخل البيت وإحنا مش عارفين مين، كسر الشباك وأخذ مصاري من الخزانة"
+    )
+    labels = {a.label for a in case.actors}
+    assert "وإحنا" not in labels
+    assert "البيت" not in labels
+    assert "مصاري" not in labels
+
+
+def test_negated_evidence_mentions_are_not_extracted_as_found_evidence():
+    # Handoff-forbidden hallucination: "لم يتم ضبط أداة" (no tool was seized) must never be
+    # read as evidence of a seizure. The extractor only matched evidence keywords by plain
+    # substring, ignoring a preceding negation particle (لم/لا/ما/دون/بدون/غير/لن/بلا).
+    case = CaseCognitionEngine(enable_llm=False).analyze(
+        "لم تعثر الشرطة على أي شيء ولم يتم ضبط أي أداة"
+    )
+    assert case.evidence == []
+
+
+def test_positive_evidence_mention_still_extracted_alongside_a_negated_one():
+    # Guards against over-correcting the fix above: a real, unnegated evidence mention in the
+    # same message must still be captured even when another mention nearby is negated.
+    case = CaseCognitionEngine(enable_llm=False).analyze(
+        "لم تعثر الشرطة على شيء لكنها عثرت على كاميرا مراقبة قريبة"
+    )
+    kinds = {e.kind for e in case.evidence}
+    assert "camera" in kinds
+
+
 def test_llm_enrichment_cannot_create_unsupported_named_actor_or_event():
     message = "أحمد أخذ الحاسوب من المكتب"
     enrichment = CognitionEnrichment(

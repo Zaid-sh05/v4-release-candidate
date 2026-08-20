@@ -16,6 +16,29 @@ FOLLOWUP_MARKERS = (
     "صدر بتاريخ", "نعم", "لا", "اه", "آه",
 )
 
+# Strong, unambiguous domain signals. A short message that clearly names a domain the
+# current case does NOT belong to is a new case, never a followup detail - regardless of
+# word count. This is deliberately conservative (only the clearest single-word signals per
+# domain) since it only ever blocks the length-based fallback below, never joins facts.
+_DOMAIN_SIGNAL_TERMS: dict[str, tuple[str, ...]] = {
+    "criminal": ("سرق", "سرقة", "سرقو", "اقتحم", "اقتحام", "قتل", "طعن", "اعتدى", "اعتداء"),
+    "traffic": ("حادث سير", "بسوق", "دهست", "تصادم", "مركبتي", "سيارتي"),
+    "cyber": ("ابتزاز", "ابتزني", "هكر", "اختراق", "واتساب", "انستغرام", "فيسبوك"),
+    "labor": ("فصلني", "صاحب العمل", "راتبي", "عقد عملي"),
+    "personal_status": ("طلاق", "حضانة", "نفقة", "خلع"),
+}
+
+
+def _signaled_conflicting_domain(message: str, current_domains: list[str]) -> bool:
+    low = message.lower()
+    current = set(current_domains)
+    for domain, terms in _DOMAIN_SIGNAL_TERMS.items():
+        if domain in current:
+            continue
+        if any(term.lower() in low for term in terms):
+            return True
+    return False
+
 
 @dataclass
 class ConversationCaseState:
@@ -30,6 +53,8 @@ class ConversationCaseState:
         low = text.lower()
         if any(m.lower() in low for m in FOLLOWUP_MARKERS):
             return True
+        if _signaled_conflicting_domain(text, self.current_case.domains):
+            return False
         if len(text.split()) <= 12 and not any(m.lower() in low for m in NEW_TOPIC_MARKERS):
             return True
         return False
