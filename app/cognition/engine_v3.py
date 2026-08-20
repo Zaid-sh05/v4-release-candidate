@@ -23,6 +23,10 @@ class CaseCognitionEngine(BaseCaseCognitionEngine):
         case = super().analyze(message, language)
 
         if apply_scenario_sanity(case):
+            signal_codes = {signal.code for signal in case.semantic_signals}
+            if "procedure.police_statement" in signal_codes and case.procedural_posture == "pre_case":
+                case.procedural_posture = "investigation"
+
             case.hypotheses = spot_issues(case)
             case.domains = list(dict.fromkeys(h.domain for h in case.hypotheses)) or ["general"]
             case.clarifying_questions = choose_questions(case)
