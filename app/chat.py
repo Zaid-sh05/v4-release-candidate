@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .answer_engine import generate_grounded_answer, insufficient_answer
+from .case_analysis import generate_case_analysis_answer
 from .cognition import CaseCognitionEngine
 from .context import contextualize_message
 from .evaluator import evaluate_answer
@@ -171,9 +172,6 @@ def handle_chat(req:ChatRequest)->ChatResponse:
         case=None
         cognition_queries=[]
 
-    # This is the reinforcement-like loop: a prior correction can improve where we look,
-    # but never becomes legal evidence. The hints themselves came only from official
-    # sources that passed the evaluator during the negative-feedback review.
     review_queries=_feedback_review_expansions(req.message,route.primary_domain) if route.intent!='smalltalk' else []
     cognition_queries=list(dict.fromkeys(cognition_queries+review_queries))[:10]
 
@@ -220,12 +218,23 @@ def handle_chat(req:ChatRequest)->ChatResponse:
                 best_grounded,best_eval,best_sources=adaptive_grounded,adaptive_eval,adaptive_sources
                 used_adaptive=True
 
+    case_analysis=None
+    case_analysis_eval=None
+    if case and route.intent=='legal_question':
+        case_analysis=generate_case_analysis_answer(effective_message,route,case,best_sources)
+        if case_analysis:
+            case_analysis_eval=evaluate_answer(effective_message,route,case_analysis.text,best_sources)
+
     history=runtime_store.history(cid,8)
     answer=None
     cognition_suffix='-cognition' if case and case.cognition_provider!='deterministic' else ''
     mode=('official-adaptive-extractive' if used_adaptive else 'official-self-checked-extractive')+cognition_suffix
 
-    if best_grounded and best_eval and best_eval.passed and (best_grounded.strength=='strong' or best_eval.score>=0.84):
+    if case_analysis and case_analysis_eval and case_analysis_eval.passed:
+        answer=case_analysis.text
+        best_eval=case_analysis_eval
+        mode='official-case-analysis'+cognition_suffix
+    elif best_grounded and best_eval and best_eval.passed and (best_grounded.strength=='strong' or best_eval.score>=0.84):
         answer=best_grounded.text
     else:
         llm_answer=generate_answer(effective_message,route,best_sources,history)
