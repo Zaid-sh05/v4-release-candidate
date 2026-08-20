@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     openai_api_key: str = ''
     openai_model: str = 'gpt-5.6'
     openai_embedding_model: str = 'text-embedding-3-small'
+    # Keep the writer useful in an interactive legal product: low reasoning is enough for
+    # grounded synthesis because retrieval/cognition are already performed by Qanoni.
+    openai_reasoning_effort: str = 'low'
+    openai_timeout_seconds: float = 18.0
+    openai_embedding_timeout_seconds: float = 6.0
 
     # Optional cognition-only LLM. Groq currently exposes an OpenAI-compatible API.
     # Qanoni always falls back to deterministic cognition if this is unavailable.

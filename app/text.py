@@ -22,6 +22,58 @@ def detect_language(text: str) -> str:
     return 'ar' if ar >= en else 'en'
 
 
+def looks_garbled_text(text: str | None) -> bool:
+    """Reject broken PDF/OCR layers before they can become legal evidence shown to a user.
+
+    Official Jordanian PDFs occasionally expose visually Arabic text as presentation-form glyphs,
+    or leak unrelated Unicode letters/symbols such as ᗷ / ᣢ / ᡧ into the extracted layer. A source
+    may still be official, but that extraction is not safe to quote, summarize, or feed to an LLM.
+    """
+    value = text or ''
+    if len(value.strip()) < 20:
+        return False
+    if '\ufffd' in value:
+        return True
+
+    presentation_forms = 0
+    foreign_letterlike = 0
+    meaningful = 0
+    for ch in value:
+        if ch.isspace():
+            continue
+        cp = ord(ch)
+        category = unicodedata.category(ch)
+        if 0xFB50 <= cp <= 0xFDFF or 0xFE70 <= cp <= 0xFEFF:
+            presentation_forms += 1
+            meaningful += 1
+            continue
+        if (
+            0x0600 <= cp <= 0x06FF
+            or 0x0750 <= cp <= 0x077F
+            or 0x08A0 <= cp <= 0x08FF
+            or 0x0041 <= cp <= 0x005A
+            or 0x0061 <= cp <= 0x007A
+            or ch.isdigit()
+        ):
+            meaningful += 1
+            continue
+        # Normal punctuation/currency characters are harmless. Unrelated letters, marks and
+        # alphabetic-looking symbols in an Arabic legal paragraph are strong extraction damage.
+        if category[0] in {'L', 'M'}:
+            foreign_letterlike += 1
+            meaningful += 1
+
+    base = max(meaningful, 1)
+    if presentation_forms >= max(5, int(base * 0.025)):
+        return True
+    if foreign_letterlike >= max(4, int(base * 0.018)):
+        return True
+
+    # Repeated isolated junk glyphs are another common PDF extraction signature.
+    suspicious_tokens = re.findall(r'(?<![\w\u0600-\u06ff])[က-᥿Ⰰ-⿿ꀀ-\ua4ff](?![\w\u0600-\u06ff])', value)
+    return len(suspicious_tokens) >= 3
+
+
 def pretty_title(title: str, body: str = '', authority: str = '') -> str:
     raw = unquote((title or '').strip())
     if '/' in raw:
@@ -30,7 +82,6 @@ def pretty_title(title: str, body: str = '', authority: str = '') -> str:
     stem = stem.replace('_', ' ').replace('-', ' ')
     stem = re.sub(r'\s+', ' ', stem).strip(' .-_')
 
-    # UUIDs, scanner/export names and meaningless generated filenames are never shown to users.
     generic = (
         UUID_FILE.match(raw)
         or not stem
@@ -41,12 +92,10 @@ def pretty_title(title: str, body: str = '', authority: str = '') -> str:
         inferred = infer_legal_title(body)
         return inferred or (f'وثيقة قانونية رسمية — {authority}' if authority else 'وثيقة قانونية رسمية')
 
-    # Gazette issue filenames are made readable rather than exposing export syntax.
     m = re.search(r'(?:عدد|issue)\s*([0-9٠-٩]{3,6})', stem, re.I)
     if m and not any(x in stem for x in ('قانون','نظام','تعليمات','دستور','قرار')):
         return f'الجريدة الرسمية — العدد {m.group(1)}'
 
-    # If a file name is mostly a code and the body exposes a proper legal title, prefer the legal title.
     if not re.search(r'[\u0600-\u06ff]', stem) or (len(stem) < 18 and re.search(r'\d', stem)):
         inferred = infer_legal_title(body)
         if inferred:
@@ -82,14 +131,12 @@ def extract_numbers(text: str) -> tuple[list[str], list[str], list[str]]:
     return list(dict.fromkeys(articles)), list(dict.fromkeys(laws)), list(dict.fromkeys(years))
 
 
-# User-facing Qanoni answers intentionally use no emoji/emoticons. The model prompt
-# asks for that style; this post-processing rule makes it deterministic.
 _EMOJI_RE = re.compile(
     '['
-    '\U0001F1E6-\U0001F1FF'  # flags
-    '\U0001F300-\U0001FAFF'  # symbols, pictographs, transport, supplemental emoji
-    '\U00002600-\U000026FF'  # miscellaneous symbols
-    '\U00002700-\U000027BF'  # dingbats
+    '\U0001F1E6-\U0001F1FF'
+    '\U0001F300-\U0001FAFF'
+    '\U00002600-\U000026FF'
+    '\U00002700-\U000027BF'
     ']+',
     flags=re.UNICODE,
 )
@@ -99,6 +146,6 @@ _EMOTICON_RE = re.compile(r"(?:(?<=\s)|^)(?:[:;=8][\-^']?[)(/DPpOo]|<3)(?=\s|$)"
 def strip_emoji_style(text: str) -> str:
     value = _EMOJI_RE.sub('', text or '')
     value = _EMOTICON_RE.sub('', value)
-    value = re.sub(r'[ \\t]{2,}', ' ', value)
-    value = re.sub(r' *\\n', '\\n', value)
+    value = re.sub(r'[ \t]{2,}', ' ', value)
+    value = re.sub(r' *\n', '\n', value)
     return value.strip()

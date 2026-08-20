@@ -10,7 +10,11 @@ from .text import normalize_ar
 
 _SMALLTALK_ONLY = {
     "مرحبا", "اهلا", "هلا", "هلو", "هلوو", "هاي", "السلام عليكم",
-    "صباح الخير", "مساء الخير", "hi", "hello", "hey",
+    "صباح الخير", "مساء الخير", "كيفك", "شو اخبارك", "مين انت", "عرفني عن حالك",
+    "شو بتقدر تعمل", "ساعدني", "شكرا", "يسلمو", "تمام", "اوكي",
+    "hi", "hello", "hey", "hi there", "hello there", "hey there",
+    "good morning", "good evening", "how are you", "hello how are you",
+    "who are you", "what can you do", "help me", "thanks", "thank you", "okay", "ok",
 }
 
 _TOKEN_EDGE_RE = re.compile(r"^[\s\.,،؛:!?؟()\[\]{}\"'«»]+|[\s\.,،؛:!?؟()\[\]{}\"'«»]+$")
@@ -47,7 +51,7 @@ def _token_variants(token: str) -> set[str]:
 
 
 def _tokens(text: str) -> list[str]:
-    return [tok for raw in normalize_ar(text).split() if (tok := _canonical_token(raw))]
+    return [tok for raw in normalize_ar(text).lower().split() if (tok := _canonical_token(raw))]
 
 
 def _phrase_tokens(text: str) -> list[str]:
@@ -55,7 +59,7 @@ def _phrase_tokens(text: str) -> list[str]:
 
 
 def _has(text: str, *phrases: str) -> bool:
-    """Token/phrase-aware exact Arabic matching; never raw substring matching."""
+    """Token/phrase-aware exact Arabic/English matching; never raw substring matching."""
     words = _tokens(text)
     variants = [_token_variants(word) for word in words]
     normalized = " ".join(words)
@@ -77,6 +81,19 @@ def _has(text: str, *phrases: str) -> bool:
         if all(ord(ch) < 128 for ch in p) and f" {p} " in f" {normalized} ":
             return True
     return False
+
+
+def _smalltalk_only_message(text: str) -> bool:
+    """Recognize conversation-only messages by the whole message, never a substring.
+
+    The legacy router historically treated ``hi`` inside ``him`` as a greeting. For a
+    legal assistant this is dangerous because a typo-rich English fact pattern may have
+    no exact legal lexicon hit and can be discarded before cognition sees it. Whole-message
+    matching preserves greetings while guaranteeing substantive narratives reach cognition.
+    """
+    signature = " ".join(_tokens(text))
+    allowed = {" ".join(_tokens(item)) for item in _SMALLTALK_ONLY}
+    return bool(signature) and signature in allowed
 
 
 def _traffic_context(text: str) -> bool:
@@ -117,6 +134,10 @@ def _set_primary(route: RouteResult, primary: str, extras: list[str] | None = No
     route.primary_domain = primary
     route.domains = domains[:4]
     route.confidence = max(route.confidence, confidence)
+    # Defense in depth: a substantive V4 guard must always rescue a false legacy
+    # smalltalk classification so cognition and grounded retrieval are allowed to run.
+    if route.intent == "smalltalk":
+        route.intent = "legal_question"
     return route
 
 
@@ -126,9 +147,7 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
     if force_domain:
         return route
 
-    n = normalize_ar(text)
-    compact = " ".join(n.split())
-    if compact in {normalize_ar(x) for x in _SMALLTALK_ONLY}:
+    if _smalltalk_only_message(text):
         return RouteResult(
             language=route.language,
             intent="smalltalk",
@@ -141,6 +160,16 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
             years=route.years,
             normalized_text=route.normalized_text,
         )
+
+    # If the legacy router found a greeting only because a short token occurred inside
+    # another English word (e.g. ``hi`` in ``him``), do not terminate the legal pipeline.
+    # Reset to a low-confidence general legal route and let the semantic guards/cognition
+    # determine the subject from the full narrative.
+    if route.intent == "smalltalk":
+        route.intent = "legal_question"
+        route.primary_domain = "general"
+        route.domains = ["general"]
+        route.confidence = 0.32
 
     appeal = _has(text, "استئناف", "استأنف", "استانف", "تمييز", "طعن", "appeal", "cassation")
     complaint = _has(text, "شكوى", "المدعي العام", "مدعي عام", "نيابة عامة", "ادعاء عام", "complaint", "prosecutor")

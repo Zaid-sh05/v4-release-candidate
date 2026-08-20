@@ -2,15 +2,18 @@ from __future__ import annotations
 
 # Compatibility bridge while V3.6 chat orchestration remains the stable retrieval/answer shell.
 # The function object in app.chat resolves its module globals at call time, so replacing these
-# routing/retrieval hooks makes the live API use V4 cognition safeguards without duplicating
+# routing/retrieval hooks makes the live API use V4/V5 cognition safeguards without duplicating
 # the whole chat stack.
 from . import chat as _legacy_chat
+from .lawyer_case_analysis_v5 import generate_lawyer_case_analysis_answer
 from .routing_guard import apply_case_route, route_query
 from .source_quality import looks_garbled_legal_text
 from .text import normalize_ar
 
 
 _ORIGINAL_RETRIEVAL_FALLBACK = _legacy_chat.retrieval_fallback
+_ORIGINAL_GENERATE_ANSWER = _legacy_chat.generate_answer
+_ORIGINAL_EMBED_QUERY = _legacy_chat.embed_query
 
 
 def _allowed_domains(domains):
@@ -90,6 +93,45 @@ def _v4_retrieval_fallback(message, route, sources):
     return _ORIGINAL_RETRIEVAL_FALLBACK(message, route, sources)
 
 
+def _should_use_openai_writer(message, route, case=None) -> bool:
+    """Use the paid writer only when broad legal synthesis materially improves the answer.
+
+    Complex narratives stay on the deterministic lawyer-case-analysis path. It is faster,
+    already case-aware, and avoids stacking a remote generation call on every long message.
+    """
+    if route.intent in {'penalty','deadline','appeal_deadline','fees','judgment'}:
+        return False
+    try:
+        return bool(_legacy_chat._needs_broad_synthesis(message, route))
+    except Exception:
+        return False
+
+
+def _v4_generate_answer(message, route, sources, history, *, draft_answer=None, case=None):
+    if not _should_use_openai_writer(message, route, case):
+        return None
+    return _ORIGINAL_GENERATE_ANSWER(
+        message,
+        route,
+        sources,
+        history,
+        draft_answer=draft_answer,
+        case=case,
+    )
+
+
+def _v4_embed_query(text: str):
+    """Avoid an external embedding round-trip for short direct questions.
+
+    Keyword + adaptive retrieval already performs well for short direct legal questions. Long
+    narratives keep semantic retrieval because it materially improves source recall.
+    """
+    compact=' '.join((text or '').split())
+    if len(compact) < 120:
+        return None
+    return _ORIGINAL_EMBED_QUERY(text)
+
+
 class _GuardedRepository:
     def __init__(self, inner):
         self._inner = inner
@@ -129,7 +171,10 @@ class _GuardedSupabaseStore:
 
 _legacy_chat.analyze_query = route_query
 _legacy_chat._apply_cognition_to_route = apply_case_route
+_legacy_chat.generate_case_analysis_answer = generate_lawyer_case_analysis_answer
 _legacy_chat.retrieval_fallback = _v4_retrieval_fallback
+_legacy_chat.generate_answer = _v4_generate_answer
+_legacy_chat.embed_query = _v4_embed_query
 _legacy_chat.repository = _GuardedRepository(_legacy_chat.repository)
 _legacy_chat.supabase_store = _GuardedSupabaseStore(_legacy_chat.supabase_store)
 
@@ -140,4 +185,5 @@ __all__ = [
     "_filter_source_items",
     "_filter_source_rows",
     "_v4_retrieval_fallback",
+    "_should_use_openai_writer",
 ]
