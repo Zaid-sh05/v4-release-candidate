@@ -7,6 +7,7 @@ from .models import SourceItem
 from .repository import repository
 from .routing_guard import apply_case_route, route_query
 from .runtime_store import runtime_store
+from .source_quality import looks_garbled_legal_text
 from .supabase_store import supabase_store
 from .text import normalize_ar
 
@@ -38,6 +39,7 @@ def _cloud_sources(queries:list[str],domains:list[str],limit:int=16)->list[Sourc
             try: item=SourceItem(**row)
             except Exception: continue
             if allowed and item.domain not in allowed: continue
+            if looks_garbled_legal_text(item.excerpt): continue
             if item.id in seen: continue
             seen.add(item.id); out.append(item)
             if len(out)>=limit: return out
@@ -48,6 +50,8 @@ def _merge_sources(*groups:list[SourceItem],limit:int=18)->list[SourceItem]:
     merged={}
     for group in groups:
         for source in group or []:
+            if looks_garbled_legal_text(source.excerpt):
+                continue
             current=merged.get(source.id)
             if current is None or source.score>current.score:
                 merged[source.id]=source
