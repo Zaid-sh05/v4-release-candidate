@@ -232,7 +232,18 @@ def diagnose_url(url: str) -> None:
     elif "html" in ctype or r.content.lstrip().startswith((b"<!DOCTYPE", b"<html", b"<HTML")):
         fmt = "html"
         r.encoding = r.apparent_encoding or r.encoding
-        raw_title, text, _links = clean_html(r.text)
+        raw_title, text, links = clean_html(r.text)
+        candidates = [(href, label) for href, label in links if candidate(href, label)]
+        print(f"  raw <a href> links found: {len(links)} | candidates: {len(candidates)}")
+        _flag_target_law_matches(candidates, r.url)
+        if len(text) < 300:
+            print("     Probing robots.txt/sitemap.xml for a JS-bypass path:")
+            probe_sitemap_and_robots(r.url)
+        print(f"  sample of candidate links, first 25 of {len(candidates)}:")
+        for href, label in candidates[:25]:
+            absolute = urljoin(r.url, href)
+            print(f"    [{'OK' if safe_url(absolute) else 'OUT-OF-ALLOWLIST'}] {absolute}")
+            print(f"        label: {label!r}")
     else:
         print(f"  UNRECOGNIZED format, content-type={ctype!r} — sync_engine would skip silently.")
         return
