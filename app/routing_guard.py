@@ -89,6 +89,28 @@ def _has(text: str, *phrases: str) -> bool:
     return False
 
 
+def _traffic_context(text: str) -> bool:
+    """Require actual driving/road conduct; Arabic حادث alone also means 'incident'."""
+    return _has(
+        text,
+        "اشارة حمراء", "إشارة حمراء", "حادث سير", "حادث مروري", "مخالفة سير",
+        "صدمت", "دهست", "تصادم", "سائق", "قيادة", "بسوق", "يقود", "مسرع",
+        "سرعة زائدة", "رادار", "red light", "road accident", "traffic accident",
+        "speeding", "driver",
+    )
+
+
+def _property_crime_context(text: str) -> bool:
+    theft_word = _has(text, "سرقة", "سرقت", "سرق", "theft", "stole")
+    taking = _has(text, "أخذ", "اخذ", "أخذت", "اخذت", "استولى", "took")
+    intrusion = _has(
+        text,
+        "كسر", "كسر قفل", "كسر الباب", "خلع", "دخل البيت", "دخل المنزل",
+        "الدخول إلى منزل", "الدخول الى منزل", "تسلل", "اقتحم", "forced entry",
+    )
+    return theft_word or (taking and intrusion)
+
+
 def _set_primary(route: RouteResult, primary: str, extras: list[str] | None = None, confidence: float = 0.9) -> RouteResult:
     domains = [primary]
     for domain in extras or []:
@@ -126,7 +148,8 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
     complaint = _has(text, "شكوى", "المدعي العام", "مدعي عام", "نيابة عامة", "ادعاء عام", "complaint", "prosecutor")
     personal = _has(text, "طلاق", "خلع", "نفقة", "حضانة", "زواج", "مطلقة", "طليقي", "محكمة شرعية", "divorce", "custody", "alimony")
     labor = _has(text, "فصلني", "طردني", "الفصل", "سبب الفصل", "صاحب العمل", "عقد عمل", "راتب", "اجر", "إنذار مكتوب", "انذار مكتوب", "ضعف الاداء", "employer", "fired", "dismissed")
-    traffic = _has(text, "اشارة حمراء", "إشارة حمراء", "حادث", "صدمت", "دهست", "تصادم", "سيارة", "مركبة", "سائق", "مسرع", "red light", "road accident", "vehicle")
+    traffic = _traffic_context(text)
+    property_crime = _property_crime_context(text)
     cyber = _has(
         text,
         "واتساب", "انستغرام", "فيسبوك", "ابتزاز", "ابتزني", "ببتزني", "يبتزني",
@@ -140,7 +163,7 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
     )
     violence = _has(text, "قتل", "قتله", "اعتداء", "ضرب", "ضربني", "طعن", "هاجمني", "سلاح", "سرقة", "سرقت", "سرق", "murder", "assault", "theft")
     taking = _has(text, "أخذ", "اخذ", "أخذت", "اخذت", "سرق", "سرقت", "استولى", "took", "stole")
-    forced_entry = _has(text, "كسر", "خلع", "دخل البيت", "دخل المنزل", "تسلل", "اقتحم", "forced entry")
+    forced_entry = _has(text, "كسر", "كسر قفل", "خلع", "دخل البيت", "دخل المنزل", "تسلل", "اقتحم", "forced entry")
     self_defense = _has(text, "دفاع عن نفسي", "دفاعا عن نفسي", "هاجمني", "self defense", "self-defense")
     injury = _has(text, "اصابة", "إصابة", "انصاب", "اصيب", "أصيب", "جرح", "المستشفى", "injury", "injured", "hospital")
     death = _has(text, "وفاة", "توفي", "توفى", "مات", "قتل", "death", "died", "killed")
@@ -154,6 +177,11 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
         _set_primary(route, "procedure", extras, 0.94)
     elif complaint:
         _set_primary(route, "procedure", ["criminal"], 0.94)
+    elif property_crime:
+        # "وقوع الحادث" commonly means "the incident occurred" in police narratives.
+        # A theft/forced-entry fact pattern must not become traffic law merely because
+        # the narrative later refers to the घटना as حادث.
+        _set_primary(route, "criminal", [], 0.94)
     elif traffic:
         extras = []
         # In a fatal traffic scenario, the criminal dimension is material before
@@ -191,6 +219,18 @@ def apply_case_route(route: RouteResult, case, force_domain: str | None = None) 
             strong_domains.append(hypothesis.domain)
 
     existing = [d for d in route.domains if d not in {"general", "conversation"}]
+
+    # LLM cognition may see the Arabic word حادث and infer a road accident even when it
+    # merely means "the incident". Preserve an explicit property-crime guard across the
+    # cognition fusion layer as well, so traffic cannot be reintroduced after lexical routing.
+    semantic_text = route.normalized_text or ""
+    if _property_crime_context(semantic_text) and not _traffic_context(semantic_text):
+        case_domains = [d for d in case_domains if d != "traffic"]
+        strong_domains = [d for d in strong_domains if d != "traffic"]
+        existing = [d for d in existing if d != "traffic"]
+        if route.primary_domain == "traffic":
+            route.primary_domain = "criminal"
+
     if route.primary_domain in {"general", "conversation"} and case_domains:
         route.primary_domain = case_domains[0]
     elif strong_domains and route.primary_domain not in strong_domains and route.primary_domain not in {"procedure", "traffic", "cyber"}:
