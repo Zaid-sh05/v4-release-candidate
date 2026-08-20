@@ -37,7 +37,12 @@ _PAYMENT_CUES = (
 _FALSE_TAKING_CONTEXTS = (
     "اخذ اقوال", "أخذ أقوال", "اخذ اقواله", "أخذ أقواله", "اخذ اقوالها", "أخذ أقوالها",
     "اخذ شهاده", "أخذ شهادة", "اخذ الشهاده", "أخذ الشهادة", "اخذ افاده", "أخذ إفادة",
+    # Plural conjugation ("رجال الشرطة أخذوا أقواله") is not close enough to the singular forms
+    # above for the conservative fuzzy-match threshold to bridge on its own.
+    "اخذوا اقوال", "أخذوا أقوال", "اخذوا اقواله", "أخذوا أقواله", "اخذوا اقوالها", "أخذوا أقوالها",
+    "اخذوا شهاده", "أخذوا شهادة", "اخذوا افاده", "أخذوا إفادة", "سجلوا افاده", "سجلوا إفادة",
     "taking a statement", "took his statement", "took her statement", "recorded his statement",
+    "took their statements",
 )
 
 _EVENT_CUES: dict[str, tuple[str, ...]] = {
@@ -122,16 +127,32 @@ def prune_false_payment_events(case) -> bool:
 
 
 def _is_false_taking_span(span: str) -> bool:
-    return contains_fuzzy(span, *_FALSE_TAKING_CONTEXTS) and not contains_fuzzy(
-        span, "سرق", "سرقه", "سرقة", "استولى", "stole", "theft", "stolen"
+    if not contains_fuzzy(span, *_FALSE_TAKING_CONTEXTS):
+        return False
+    # A span can legitimately contain BOTH a false-taking context (police took a statement) and
+    # genuine property-taking language (also took a laptop) when an event's span was not scoped
+    # narrowly. Remove the false-context phrase(s) first and only call it false if no taking
+    # language remains, mirroring the residual technique already used below for semantic signals.
+    residual = _norm(span)
+    for phrase in _FALSE_TAKING_CONTEXTS:
+        residual = residual.replace(_norm(phrase), " ")
+    return not contains_fuzzy(
+        residual, "سرق", "سرقه", "سرقة", "استولى", "اخذ", "أخذ", "اخد", "stole", "theft", "stolen", "took"
     )
 
 
 def prune_false_taking_semantics(case) -> bool:
     changed = False
     kept_events = []
+    raw_message = getattr(case, "raw_message", "") or ""
     for event in getattr(case, "events", []):
-        if event.event_type == "taking" and _is_false_taking_span(event.support_span or event.text or ""):
+        # A "taking" event generated with no span of its own (e.g. from a plural conjugation
+        # like "أخذوا أقواله" that the extractor recognized as an event but didn't anchor to
+        # text) has nothing for _is_false_taking_span to check against and silently survives
+        # pruning. Fall back to the raw message so this class of false police-statement-as-theft
+        # event is still caught.
+        span = event.support_span or event.text or raw_message
+        if event.event_type == "taking" and _is_false_taking_span(span):
             changed = True
             continue
         kept_events.append(event)

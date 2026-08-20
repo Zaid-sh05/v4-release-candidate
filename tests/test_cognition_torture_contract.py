@@ -79,6 +79,27 @@ def test_attached_preposition_pronouns_are_not_extracted_as_person_actors():
     assert "لوالده" not in labels
 
 
+def test_plural_police_statement_is_not_misread_as_property_taking():
+    # Same defect class the handoff explicitly forbids ("تم أخذ أقواله" must never become
+    # theft), reappearing under plural conjugation: "أخذوا أقواله" (they took his statement,
+    # plural) wasn't close enough to the singular "أخذ أقواله" blocklist entries for fuzzy
+    # matching to bridge, so a false "taking" (property theft) event survived pruning.
+    case = CaseCognitionEngine(enable_llm=False).analyze("رجال الشرطة أخذوا أقواله وسجلوا إفادته")
+    event_types = {e.event_type for e in case.events}
+    assert event_types == {"statement"}
+
+
+def test_real_taking_survives_when_a_false_statement_context_shares_its_span():
+    # Guards against over-correcting the fix above: a message with BOTH genuine property
+    # taking and a later false-context statement mention must keep the real taking event.
+    case = CaseCognitionEngine(enable_llm=False).analyze(
+        "اقتحم المنزل واخذ الحاسوب، وبعدها اخذوا اقواله في المركز"
+    )
+    event_types = {e.event_type for e in case.events}
+    assert "taking" in event_types
+    assert "statement" in event_types
+
+
 def test_llm_enrichment_cannot_create_unsupported_named_actor_or_event():
     message = "أحمد أخذ الحاسوب من المكتب"
     enrichment = CognitionEnrichment(
