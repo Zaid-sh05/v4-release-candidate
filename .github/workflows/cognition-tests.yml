@@ -56,6 +56,9 @@ jobs:
             tests/test_case_analysis_bilingual.py \
             tests/test_conversation_threading.py
 
+      - name: Run lawyer scenario torture suite
+        run: python -m pytest -q tests/test_lawyer_torture_suite.py
+
       - name: Run V3 regression tests
         run: |
           python -m pytest -q \

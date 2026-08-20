@@ -5,7 +5,7 @@ from __future__ import annotations
 # routing/retrieval hooks makes the live API use V4 cognition safeguards without duplicating
 # the whole chat stack.
 from . import chat as _legacy_chat
-from .lawyer_case_analysis import generate_lawyer_case_analysis_answer
+from .lawyer_case_analysis_v4 import generate_lawyer_case_analysis_answer
 from .routing_guard import apply_case_route, route_query
 from .source_quality import looks_garbled_legal_text
 from .text import normalize_ar
