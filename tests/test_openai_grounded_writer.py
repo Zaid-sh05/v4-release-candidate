@@ -43,6 +43,27 @@ def test_validator_accepts_supported_article_and_citation():
     assert ok, reasons
 
 
+def test_validator_accepts_numbered_list_enumerator_but_still_checks_claim_numbers():
+    ok,reasons=llm.validate_generated_answer(
+        '1. إذا ثبت الفصل التعسفي فقد يترتب التعويض وفق المادة 25. [S1]',
+        [_source()],
+        'ar',
+    )
+    assert ok, reasons
+    assert llm._claim_numbers('1. إذا ثبت الفصل التعسفي فقد يترتب التعويض وفق المادة 25. [S1]')==['25']
+
+
+def test_validator_rejects_numbered_list_with_unsupported_article():
+    ok,reasons=llm.validate_generated_answer(
+        '2. تنص المادة 999 على تعويض غير مثبت. [S1]',
+        [_source()],
+        'ar',
+    )
+    assert not ok
+    assert 'unsupported_legal_number:999' in reasons
+    assert 'unsupported_legal_number:2' not in reasons
+
+
 def test_validator_rejects_nonexistent_source_number():
     ok,reasons=llm.validate_generated_answer('تنص المادة 25 على ذلك. [S2]',[_source()],'ar')
     assert not ok
