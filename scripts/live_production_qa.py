@@ -17,6 +17,13 @@ EMOJI = re.compile(r"[\U0001F1E6-\U0001FAFF\u2600-\u27BF]+")
 
 created_conversations: list[str] = []
 
+BURGLARY_CASE = (
+    "قام أحمد بالدخول إلى منزل جاره خالد أثناء غيابه، بعد أن كسر قفل الباب الخارجي. "
+    "أخذ جهاز حاسوب محمول ومبلغا نقديا مقداره 500 دينار، ثم غادر المكان. لاحقا عثرت "
+    "الشرطة على الحاسوب في منزل أحمد، وأظهرت كاميرا مراقبة قريبة وجوده أمام منزل خالد "
+    "في وقت وقوع الحادث."
+)
+
 
 def fail(message: str) -> None:
     raise AssertionError(message)
@@ -24,6 +31,16 @@ def fail(message: str) -> None:
 
 def canonical_url(value: str | None) -> str:
     return unquote((value or "").strip()).rstrip("/")
+
+
+def looks_garbled_arabic(text: str | None) -> bool:
+    """Detect broken Arabic PDF text layers such as ﻧﺤﻦ ﻋﺒﺪ ﷲ before accepting live output."""
+    text = text or ""
+    presentation_forms = sum(
+        1 for ch in text
+        if 0xFB50 <= ord(ch) <= 0xFDFF or 0xFE70 <= ord(ch) <= 0xFEFF
+    )
+    return presentation_forms > max(6, len(text) // 20)
 
 
 def post_chat(client: httpx.Client, message: str, *, language: str = "ar", force_domain: str | None = None) -> dict[str, Any]:
@@ -48,6 +65,31 @@ def post_chat(client: httpx.Client, message: str, *, language: str = "ar", force
 def assert_prefix(actual: list[str], expected: list[str], label: str) -> None:
     if actual[: len(expected)] != expected:
         fail(f"{label}: expected prefix {expected}, got {actual}")
+
+
+def assert_burglary_regression(data: dict[str, Any]) -> None:
+    route = data.get("route") or {}
+    domains = route.get("domains") or []
+    answer = data.get("answer") or ""
+    sources = data.get("sources") or []
+
+    if route.get("primary_domain") != "criminal":
+        fail(f"burglary primary domain must be criminal, got {route}")
+    if "traffic" in domains:
+        fail(f"burglary route leaked traffic: {domains}")
+    if "قانون السير" in answer or "الجزاء المروري" in answer:
+        fail(f"burglary answer leaked traffic law: {answer[:900]}")
+    if looks_garbled_arabic(answer):
+        fail(f"burglary answer exposed broken Arabic PDF text: {answer[:900]}")
+    for source in sources:
+        title = source.get("title") or ""
+        excerpt = source.get("excerpt") or ""
+        if source.get("domain") == "traffic" or "قانون السير" in title:
+            fail(f"burglary source leaked traffic evidence: {source}")
+        if looks_garbled_arabic(excerpt):
+            fail(f"burglary source exposed garbled PDF extraction: {title}")
+    if "جزائي" not in answer and "قانون العقوبات" not in answer:
+        fail(f"burglary answer did not identify criminal-law basis clearly: {answer[:900]}")
 
 
 def supabase_client():
@@ -138,6 +180,7 @@ def main() -> int:
             ("بدي أستأنف حكم بقضية سرقة، شو المعلومات اللي لازم أحددها؟", ["procedure", "criminal"]),
             ("كنت بسوق ودهست شخص بالغلط وتوفى", ["traffic", "criminal"]),
             ("خطط شخص مسبقاً لقتل خالد وانتظره ثم قتله عمداً", ["criminal"]),
+            (BURGLARY_CASE, ["criminal"]),
         ]
         for message, expected in cases:
             data = post_chat(client, message)
@@ -147,7 +190,11 @@ def main() -> int:
                 answer = data.get("answer") or ""
                 if "تزويد طالبي الخدمة" in answer or "العمال الأردنيين" in answer:
                     fail(f"divorce answer leaked labor corpus: {answer[:500]}")
-            print(f"[PASS] route {message!r} -> {domains}")
+            if message == BURGLARY_CASE:
+                assert_burglary_regression(data)
+                print(f"[PASS] burglary production regression -> {domains}")
+            else:
+                print(f"[PASS] route {message!r} -> {domains}")
 
         english = post_chat(client, "Hello", language="en")
         assert_prefix(english["route"]["domains"], ["conversation"], "English smalltalk")
