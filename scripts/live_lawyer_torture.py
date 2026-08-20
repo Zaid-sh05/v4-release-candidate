@@ -92,12 +92,15 @@ def post_chat(
 
 
 def assert_no_garbled(text: str, label: str) -> None:
+    """Catch real broken PDF glyph layers without treating ordinary punctuation as corruption."""
     bad_ranges = sum(
         1 for ch in text
         if 0xFB50 <= ord(ch) <= 0xFDFF or 0xFE70 <= ord(ch) <= 0xFEFF
     )
-    exotic = sum(1 for ch in text if 0x1400 <= ord(ch) <= 0x2DFF)
-    if bad_ranges > max(5, len(text) // 25) or exotic > 4:
+    # The bad traffic PDF contained glyphs such as ᗷ / ᣢ / ᡧ in these script blocks. Keep this
+    # narrow: the previous 0x1400-0x2DFF range also included normal punctuation such as em dash U+2014.
+    broken_script_glyphs = sum(1 for ch in text if 0x1400 <= ord(ch) <= 0x19FF)
+    if bad_ranges > max(5, len(text) // 25) or broken_script_glyphs > 4:
         fail(f"{label}: garbled OCR leaked into answer: {text[:1000]}")
 
 
