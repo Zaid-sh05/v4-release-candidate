@@ -28,3 +28,6 @@ jobs:
 
       - name: Run read-only corpus/retrieval audit
         run: python scripts/audit_legal_corpus_topics.py
+
+      - name: Run read-only ingestion/coverage audit
+        run: python scripts/audit_ingestion_coverage.py
