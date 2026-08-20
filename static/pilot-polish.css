@@ -1,0 +1,41 @@
+.setting-value{overflow-wrap:anywhere;word-break:break-word;line-height:1.25}
+html[dir="ltr"] .bubble{text-align:left}
+html[dir="rtl"] .bubble{text-align:right}
+html[dir="ltr"] .route-select,html[dir="ltr"] .page-head,html[dir="ltr"] .source-card,html[dir="ltr"] .coverage-card,html[dir="ltr"] .setting-card{text-align:left}
+
+@media(max-width:760px){
+  .main-panel{height:100dvh;min-height:100dvh}
+  .topbar{padding-inline:16px}
+  .chat-scroll{padding:18px 12px 14px}
+  .hero{margin-bottom:16px;gap:12px}
+  .hero-copy .eyebrow{display:none}
+  .hero h1{font-size:27px}
+  .hero p{font-size:13px;line-height:1.7}
+  .suggestions{margin-bottom:18px}
+  .suggestion:nth-child(n+5){display:none}
+  .message{gap:8px}
+  .bubble{max-width:calc(100% - 42px);font-size:14px;line-height:1.8;padding:13px 14px;border-radius:16px}
+  .avatar{width:32px;height:32px;flex-basis:32px;border-radius:10px}
+  .composer-area{padding:9px 10px calc(72px + env(safe-area-inset-bottom))}
+  .composer{border-radius:16px;padding:7px 8px}
+  .composer textarea{font-size:16px;min-height:40px;padding:8px}
+  .send-btn{width:42px;height:42px;flex-basis:42px}
+  .mobile-nav{height:calc(62px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom)}
+  .feedback-row button{min-height:34px;font-size:10px;padding-inline:11px}
+  .setting-value{font-size:17px}
+  .coverage-card,.source-card,.engine-card,.setting-card{padding:15px}
+}
+
+@media(max-width:430px){
+  .topbar{height:56px;flex-basis:56px}
+  .mobile-brand strong{font-size:16px}
+  .language-btn{height:36px;min-width:58px}
+  .chat-scroll{padding-inline:10px}
+  .hero h1{font-size:25px}
+  .suggestion{max-width:100%;flex-basis:100%;padding:9px 11px}
+  .bubble{max-width:calc(100% - 38px);font-size:13.5px;padding:12px 13px}
+  .avatar{width:30px;height:30px;flex-basis:30px}
+  .message-meta{gap:6px;margin-top:10px;padding-top:9px}
+  .route-chip{padding:3px 7px}
+  .feedback-row{gap:6px;margin-top:9px}
+}

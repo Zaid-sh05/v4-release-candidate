@@ -10,7 +10,7 @@ from .config import ROOT, settings
 from .models import ChatRequest, ChatResponse, FeedbackRequest
 from .chat_v4 import handle_chat
 from .feedback_review import review_negative_feedback
-from .observability import ai_runtime_status, effective_corpus_stats
+from .observability import ai_runtime_status, effective_corpus_stats, effective_coverage
 from .repository import repository
 from .router import DOMAIN_LABELS
 from .mcp_runtime import build_mcp_servers
@@ -101,11 +101,23 @@ def domains(): return [{'id':d,'label_ar':x['ar'],'label_en':x['en'],'tools':['s
 @app.get('/api/sources')
 def sources(): return repository.source_registry()
 @app.get('/api/coverage')
-def coverage(): return repository.coverage()
+def coverage(): return effective_coverage()
 @app.get('/api/stats')
 def stats(): return effective_corpus_stats()
 @app.get('/api/search')
-def search(q:str=Query(min_length=2),domain:str='general',limit:int=8): return {'query':q,'domain':domain,'results':repository.search(q,[domain],min(max(limit,1),20))}
+def search(q:str=Query(min_length=2),domain:str='general',limit:int=8):
+    if domain not in DOMAIN_LABELS:
+        raise HTTPException(status_code=400,detail='Unknown legal domain.')
+    bounded=min(max(limit,1),20)
+    results=[]
+    store='sqlite'
+    if supabase_store.configured:
+        results=supabase_store.keyword_search(q,[domain],bounded)
+        if results:
+            store='supabase'
+    if not results:
+        results=repository.search(q,[domain],bounded)
+    return {'query':q,'domain':domain,'store':store,'results':results}
 @app.post('/api/chat',response_model=ChatResponse)
 def chat(req:ChatRequest): return handle_chat(req)
 

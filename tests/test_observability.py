@@ -28,13 +28,25 @@ class _Client:
     def __init__(self):
         self.tables = {
             'legal_chunks': [
-                {'id': 'c1', 'domain': 'commercial'},
-                {'id': 'c2', 'domain': 'commercial'},
-                {'id': 'c3', 'domain': 'labor'},
+                {'id': 'c1', 'domain': 'labor', 'document_id': 'd1', 'article': '1'},
+                {'id': 'c2', 'domain': 'labor', 'document_id': 'd1', 'article': '2'},
+                {'id': 'c3', 'domain': 'civil', 'document_id': 'd2', 'article': None},
             ],
             'legal_documents': [
-                {'id': 'd1'},
-                {'id': 'd2'},
+                {
+                    'id': 'd1',
+                    'title_ar': 'قانون العمل رقم 8 لسنة 1996 وتعديلاته',
+                    'domain': 'labor',
+                    'source_url': 'https://example.test/labor.pdf',
+                    'source_kind': 'official_sync',
+                },
+                {
+                    'id': 'd2',
+                    'title_ar': 'القانون المدني رقم 43 لسنة 1976 وتعديلاته',
+                    'domain': 'civil',
+                    'source_url': 'https://example.test/civil',
+                    'source_kind': 'reference',
+                },
             ],
         }
 
@@ -62,8 +74,27 @@ def test_effective_corpus_reports_cloud_when_supabase_is_configured(monkeypatch)
     assert stats['store'] == 'supabase'
     assert stats['chunks'] == 3
     assert stats['documents'] == 2
-    assert stats['domains'] == {'commercial': 2, 'labor': 1}
+    assert stats['domains'] == {'labor': 2, 'civil': 1}
     assert stats['local_fallback'] == {'chunks': 2, 'documents': 1}
+
+
+def test_effective_coverage_uses_cloud_documents_not_local_snapshot(monkeypatch):
+    monkeypatch.setattr(observability.supabase_store, 'client', _Client())
+    monkeypatch.setattr(observability.repository, 'coverage', lambda: [{'title': 'LOCAL_ONLY'}])
+    observability.clear_observability_cache()
+
+    coverage = observability.effective_coverage()
+    labor = next(row for row in coverage if row['domain'] == 'labor')
+    civil = next(row for row in coverage if row['domain'] == 'civil')
+
+    assert labor['store'] == 'supabase'
+    assert labor['chunks'] == 2
+    assert labor['distinct_articles'] == 2
+    assert labor['status'] == 'partial'
+    assert labor['source_urls'] == ['https://example.test/labor.pdf']
+    assert civil['chunks'] == 1
+    assert civil['status'] == 'reference_only'
+    assert all(row['title'] != 'LOCAL_ONLY' for row in coverage)
 
 
 def test_ai_status_reports_groq_cognition_without_openai(monkeypatch):
