@@ -24,6 +24,16 @@ BURGLARY_CASE = (
     "في وقت وقوع الحادث."
 )
 
+NOISY_AR_CASE = (
+    "دخل احمد منزل خالد وكسسر قفل الباب واخذ اللابتوب و500 دينار. "
+    "بعدها عثرت الشرطه عاللابتوب عنده وكاميرا مراقبه صورته قرب المنزل."
+)
+
+NOISY_EN_CASE = (
+    "He brok into the house and stol a laptop and 500 JOD. "
+    "Police recovred the laptop later and a camra showd him outside the house."
+)
+
 
 def fail(message: str) -> None:
     raise AssertionError(message)
@@ -90,6 +100,53 @@ def assert_burglary_regression(data: dict[str, Any]) -> None:
             fail(f"burglary source exposed garbled PDF extraction: {title}")
     if "جزائي" not in answer and "قانون العقوبات" not in answer:
         fail(f"burglary answer did not identify criminal-law basis clearly: {answer[:900]}")
+
+
+def assert_case_analysis(data: dict[str, Any], *, language: str, label: str) -> None:
+    route = data.get("route") or {}
+    domains = route.get("domains") or []
+    answer = data.get("answer") or ""
+    mode = data.get("mode") or ""
+    sources = data.get("sources") or []
+
+    if route.get("primary_domain") != "criminal" or not domains or domains[0] != "criminal":
+        fail(f"{label}: noisy property case did not route criminal first: {route}")
+    if "traffic" in domains:
+        fail(f"{label}: noisy property case leaked traffic domain: {domains}")
+    if not mode.startswith("official-case-analysis"):
+        fail(f"{label}: expected Case Analysis mode, got {mode}; answer={answer[:900]}")
+    if not sources:
+        fail(f"{label}: case analysis must be grounded in at least one official source")
+    if any(source.get("domain") != "criminal" for source in sources):
+        fail(f"{label}: case analysis returned non-criminal source: {sources[:4]}")
+    if "قانون السير" in answer or "traffic law" in answer.lower():
+        fail(f"{label}: case analysis leaked traffic law: {answer[:900]}")
+    if looks_garbled_arabic(answer):
+        fail(f"{label}: case analysis exposed garbled Arabic: {answer[:900]}")
+
+    if language == "ar":
+        required = (
+            "التحليل الأولي للحالة",
+            "المسائل القانونية التي يجب فحصها",
+            "الوقائع المؤثرة قانونياً",
+            "الأدلة/القرائن المذكورة",
+            "الأساس القانوني الرسمي المسترجع",
+            "لن أحدد رقم مادة أو عقوبة",
+        )
+    else:
+        required = (
+            "Preliminary case analysis",
+            "Issues that should be tested",
+            "Legally important facts",
+            "Evidence/indicators mentioned",
+            "Retrieved official legal basis",
+            "I will not assign an article number or penalty",
+        )
+    missing = [item for item in required if item not in answer]
+    if missing:
+        fail(f"{label}: missing structured Case Analysis sections {missing}; answer={answer[:1400]}")
+    if "[S" not in answer:
+        fail(f"{label}: grounded case analysis has no source citation: {answer[:900]}")
 
 
 def supabase_client():
@@ -195,6 +252,14 @@ def main() -> int:
                 print(f"[PASS] burglary production regression -> {domains}")
             else:
                 print(f"[PASS] route {message!r} -> {domains}")
+
+        noisy_ar = post_chat(client, NOISY_AR_CASE, language="ar")
+        assert_case_analysis(noisy_ar, language="ar", label="Arabic noisy case")
+        print(f"[PASS] Arabic noisy Case Analysis -> {noisy_ar['route']['domains']} / {noisy_ar.get('mode')}")
+
+        noisy_en = post_chat(client, NOISY_EN_CASE, language="en")
+        assert_case_analysis(noisy_en, language="en", label="English noisy case")
+        print(f"[PASS] English noisy Case Analysis -> {noisy_en['route']['domains']} / {noisy_en.get('mode')}")
 
         english = post_chat(client, "Hello", language="en")
         assert_prefix(english["route"]["domains"], ["conversation"], "English smalltalk")
