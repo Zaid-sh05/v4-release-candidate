@@ -120,19 +120,37 @@ def _strip_ar_clitic(token: str) -> str:
     return t
 
 
+_AR_POSSESSIVE_SUFFIXES = ('ي', 'ه', 'ها', 'هم', 'هن', 'كم', 'كن', 'نا', 'ك')
+
+
+def _token_matches_single_word_phrase(token: str, phrase: str) -> bool:
+    """Match a single-word lexicon phrase against a token, tolerating an attached possessive
+    suffix ("راتبي" for "راتب") without falling back to unanchored substring containment
+    (which would also match unrelated words like "مستأجر" for "اجر")."""
+    if token == phrase:
+        return True
+    return any(token == phrase + suffix for suffix in _AR_POSSESSIVE_SUFFIXES)
+
+
 def _phrase_in_text(normalized_text: str, phrase: str, lang: str) -> bool:
     p=normalize_ar(phrase) if lang=='ar' else phrase.lower()
     if not p:
         return False
-    if p in normalized_text:
-        return True
     if lang!='ar':
-        return False
+        return p in normalized_text
+    # Only take the raw-substring shortcut for multi-word phrases (already anchored by the
+    # surrounding spaces). A single short Arabic root (e.g. "اجر" wage) is otherwise a substring
+    # of many unrelated longer words (e.g. "مستأجر" tenant, "الدين" religion vs "دين" debt), so
+    # single-word phrases must go through the whole-token comparison below instead.
+    if ' ' in p and p in normalized_text:
+        return True
     text_tokens=[_strip_ar_clitic(x) for x in normalized_text.split()]
     phrase_tokens=[_strip_ar_clitic(x) for x in p.split()]
     if not phrase_tokens or len(phrase_tokens)>len(text_tokens):
         return False
     width=len(phrase_tokens)
+    if width==1:
+        return any(_token_matches_single_word_phrase(t, phrase_tokens[0]) for t in text_tokens)
     return any(text_tokens[i:i+width]==phrase_tokens for i in range(len(text_tokens)-width+1))
 
 
