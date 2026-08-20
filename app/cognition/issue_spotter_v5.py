@@ -1,8 +1,36 @@
 from __future__ import annotations
 
 from .issue_spotter_v4 import spot_issues as base_spot_issues
-from .language_match import contains_fuzzy, normalize_flexible
+from .language_match import contains_fuzzy, normalize_flexible, tokens
 from .models import CaseModel, LegalHypothesis
+
+
+_MEDIUM_PREPOSITION_TOKENS = [tokens(p) for p in ("عبر", "من خلال", "بواسطة", "خلال", "via", "through")]
+_MEDIUM_NOUN_TOKENS = {
+    "تطبيق", "تطبيقات", "منصه", "منصات", "موقع", "مواقع", "برنامج", "برامج",
+    "حساب", "حسابات", "رسائل", "رساله", "شات", "النت", "الانترنت",
+    "app", "apps", "platform", "account", "website", "chat", "messages", "online",
+}
+
+
+def _digital_medium_context(text: str) -> bool:
+    """Recognize an unnamed digital channel by its grammatical construction.
+
+    A fixed list of platform names cannot generalize to a product Qanoni has never seen
+    named. Detecting the "<preposition> <medium-noun>" construction itself (e.g. "عبر
+    تطبيق", "من خلال حساب") lets the narrative be understood without knowing the product.
+    """
+    words = tokens(text)
+    for prep_tokens in _MEDIUM_PREPOSITION_TOKENS:
+        width = len(prep_tokens)
+        if not width or width > len(words):
+            continue
+        for i in range(len(words) - width + 1):
+            if words[i:i + width] != prep_tokens:
+                continue
+            if any(w in _MEDIUM_NOUN_TOKENS for w in words[i + width:i + width + 4]):
+                return True
+    return False
 
 
 def _add(items: list[LegalHypothesis], hypothesis: LegalHypothesis) -> None:
@@ -307,12 +335,20 @@ def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
     # ------------------------------------------------------------------
     # Cyber / data / online coercion
     # ------------------------------------------------------------------
-    online_context = _has(text, "واتساب", "فيسبوك", "انستغرام", "إنستغرام", "حساب", "اونلاين", "أونلاين", "whatsapp", "facebook", "instagram", "online", "account")
-    blackmail = online_context and _has(
-        text,
-        "ابتزاز", "ابتزني", "ببتزني", "إذا ما دفعت", "اذا ما دفعت", "هدد ينشر", "هدد بنشر",
-        "blackmail", "extortion", "threatened to publish", "pay or",
+    online_context = _has(
+        text, "واتساب", "فيسبوك", "انستغرام", "إنستغرام", "حساب", "اونلاين", "أونلاين",
+        "whatsapp", "facebook", "instagram", "online", "account",
+    ) or _digital_medium_context(text)
+    # Decomposed into independent components (threat + disclosure-or-benefit-demand)
+    # rather than a fixed collocation like "هدد بنشر", so word order and phrasing that
+    # were never seen in a fixture still resolve to the same legal issue.
+    threat_language = _has(text, "هدد", "تهديد", "مهدد", "threat", "threatened", "ابتزاز", "ابتزني", "ببتزني", "blackmail", "extortion")
+    disclosure_language = _has(text, "ينشر", "نشر", "يفضح", "فضح", "تسريب", "يسرب", "publish", "leak", "expose", "disclose")
+    benefit_demand_language = _has(
+        text, "دفع", "دفعت", "مبلغ", "فلوس", "مصاري", "مقابل", "إذا ما", "اذا ما",
+        "حولتله", "حولت", "pay", "payment", "in exchange", "unless",
     )
+    blackmail = online_context and threat_language and (disclosure_language or benefit_demand_language)
     intrusion = online_context and _has(
         text,
         "اخترق", "اختراق", "تهكير", "دخل حسابي", "سرق كلمة السر", "غير كلمة السر",

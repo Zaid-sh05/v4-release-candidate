@@ -126,6 +126,37 @@ def _property_crime_context(text: str) -> bool:
     return theft_word or (taking and intrusion)
 
 
+_DIGITAL_MEDIUM_PREPOSITIONS = ("عبر", "من خلال", "بواسطة", "خلال", "via", "through")
+_DIGITAL_MEDIUM_NOUN_TOKENS = {
+    "تطبيق", "تطبيقات", "منصه", "منصات", "موقع", "مواقع", "برنامج", "برامج",
+    "حساب", "حسابات", "رسائل", "رساله", "شات", "النت", "الانترنت",
+    "app", "apps", "platform", "account", "website", "chat", "messages", "online",
+}
+
+
+def _digital_medium_context(text: str) -> bool:
+    """Recognize an unnamed digital communication channel by its grammatical construction.
+
+    A Jordanian narrative routinely describes a threat "through an app" or "via a
+    platform" without ever naming the product. A fixed platform-name list cannot
+    generalize to that, so this looks for the preposition + medium-noun construction
+    itself (e.g. "عبر تطبيق", "من خلال حساب") instead of any specific product name.
+    """
+    words = _tokens(text)
+    for prep in _DIGITAL_MEDIUM_PREPOSITIONS:
+        prep_tokens = _phrase_tokens(prep)
+        width = len(prep_tokens)
+        if not width or width > len(words):
+            continue
+        for i in range(len(words) - width + 1):
+            if not all(prep_tokens[o] in _token_variants(words[i + o]) for o in range(width)):
+                continue
+            for j in range(i + width, min(i + width + 4, len(words))):
+                if _DIGITAL_MEDIUM_NOUN_TOKENS & _token_variants(words[j]):
+                    return True
+    return False
+
+
 def _set_primary(route: RouteResult, primary: str, extras: list[str] | None = None, confidence: float = 0.9) -> RouteResult:
     domains = [primary]
     for domain in extras or []:
@@ -177,17 +208,17 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
     labor = _has(text, "فصلني", "طردني", "الفصل", "سبب الفصل", "صاحب العمل", "عقد عمل", "راتب", "اجر", "إنذار مكتوب", "انذار مكتوب", "ضعف الاداء", "employer", "fired", "dismissed")
     traffic = _traffic_context(text)
     property_crime = _property_crime_context(text)
-    cyber = _has(
-        text,
-        "واتساب", "انستغرام", "فيسبوك", "ابتزاز", "ابتزني", "ببتزني", "يبتزني",
-        "اختراق", "تهكير", "whatsapp", "online blackmail", "cybercrime",
-    )
-    threat = _has(
-        text,
+    threat_terms = (
         "هدد", "هددني", "يهددني", "بهددني", "بتهددني", "تهديد",
         "ابتزاز", "ابتزني", "ببتزني", "يبتزني", "مبتزني",
         "threat", "blackmail", "extortion",
     )
+    threat = _has(text, *threat_terms) or contains_fuzzy(text, *threat_terms)
+    cyber = _has(
+        text,
+        "واتساب", "انستغرام", "فيسبوك", "ابتزاز", "ابتزني", "ببتزني", "يبتزني",
+        "اختراق", "تهكير", "whatsapp", "online blackmail", "cybercrime",
+    ) or (threat and _digital_medium_context(text))
     violence = _has(text, "قتل", "قتله", "اعتداء", "ضرب", "ضربني", "طعن", "هاجمني", "سلاح", "سرقة", "سرقت", "سرق", "murder", "assault", "theft")
     taking = _has(text, "أخذ", "اخذ", "اخد", "أخذت", "اخذت", "سرق", "سرقت", "استولى", "took", "stole")
     forced_entry = _has(text, "كسر", "كسر قفل", "خلع", "دخل البيت", "دخل المنزل", "تسلل", "اقتحم", "forced entry")
