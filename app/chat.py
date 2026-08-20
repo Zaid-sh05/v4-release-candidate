@@ -11,7 +11,7 @@ from .repository import repository
 from .router import DOMAIN_LABELS, analyze_query
 from .runtime_store import runtime_store
 from .supabase_store import supabase_store
-from .text import normalize_ar, strip_emoji_style
+from .text import looks_garbled_text, normalize_ar, strip_emoji_style
 
 AR_DISCLAIMER='معلومات قانونية عامة مستندة إلى مصادر رسمية، ولا تغني عن استشارة محامٍ مرخص أو قرار الجهة المختصة.'
 EN_DISCLAIMER='General legal information grounded in official sources; it is not a substitute for advice from a licensed lawyer or the competent authority.'
@@ -45,13 +45,46 @@ def _boilerplate_excerpt(text:str)->bool:
     return sum(1 for x in bad if normalize_ar(x) in n)>=2
 
 
+def _source_is_usable(source:SourceItem)->bool:
+    excerpt=(source.excerpt or '').strip()
+    return bool(
+        excerpt
+        and source.source_kind!='reference'
+        and not _boilerplate_excerpt(excerpt)
+        and not looks_garbled_text(excerpt)
+    )
+
+
+def _guard_sources(route:RouteResult,sources:list[SourceItem])->list[SourceItem]:
+    """Keep only readable sources that belong to the active legal route.
+
+    This is a safety/quality boundary, not a relevance model. In highly specialized domains such
+    as cybercrime, a general criminal article may never displace an available cyber source merely
+    because it contains generic words like threat, money, images, or punishment.
+    """
+    allowed=set(route.domains or [route.primary_domain])
+    cleaned=[]; seen=set()
+    for source in sources:
+        if source.id in seen or source.domain not in allowed or not _source_is_usable(source):
+            continue
+        seen.add(source.id); cleaned.append(source)
+
+    strict_primary={'cyber','personal_status','labor','commercial'}
+    if route.primary_domain in strict_primary:
+        primary=[s for s in cleaned if s.domain==route.primary_domain]
+        if primary:
+            return primary
+        # For a specialized question, no answer is safer than silently substituting another field.
+        return []
+    return cleaned
+
+
 def retrieval_fallback(message:str,route:RouteResult,sources:list[SourceItem])->str:
-    if not sources or all(s.source_kind=='reference' for s in sources):
+    sources=_guard_sources(route,sources)
+    if not sources:
         return insufficient_answer(message,route,sources)
-    usable=[s for s in sources if s.excerpt and s.source_kind!='reference' and not _boilerplate_excerpt(s.excerpt)]
-    preferred=[s for s in usable if s.source_kind in {'canonical_verified','verified_crosscheck','official_guidance','official_service','judicial_principle'}]
-    substantive=(preferred or usable)
-    if not substantive: return insufficient_answer(message,route,sources)
+    preferred=[s for s in sources if s.source_kind in {'canonical_verified','verified_crosscheck','official_guidance','official_service','judicial_principle'}]
+    substantive=(preferred or sources)
     substantive=sorted(substantive,key=lambda s:(s.source_kind in {'canonical_verified','verified_crosscheck'},s.source_kind in {'official_guidance','official_service','judicial_principle'},s.score),reverse=True)[0]
     excerpt=' '.join((substantive.excerpt or '').split())
     excerpt=excerpt[:760].rsplit(' ',1)[0] + ('…' if len(excerpt)>760 else '')
@@ -71,7 +104,6 @@ def _supabase_sources(rows:list[dict]) -> list[SourceItem]:
 
 
 def _cloud_keyword_sources(queries:list[str],domains:list[str],limit:int=12)->list[SourceItem]:
-    """Bounded multi-query cloud retrieval with no embedding provider required."""
     if not supabase_store.configured:
         return []
     out=[]; seen=set()
@@ -86,6 +118,7 @@ def _cloud_keyword_sources(queries:list[str],domains:list[str],limit:int=12)->li
 
 
 def _choose_grounded(message:str,route:RouteResult,sources:list[SourceItem]):
+    sources=_guard_sources(route,sources)
     grounded=generate_grounded_answer(message,route,sources)
     if not grounded: return None,None
     evaluation=evaluate_answer(message,route,grounded.text,sources)
@@ -93,7 +126,6 @@ def _choose_grounded(message:str,route:RouteResult,sources:list[SourceItem]):
 
 
 def _apply_cognition_to_route(route:RouteResult, case, force_domain:str|None)->RouteResult:
-    """Use cognition as a routing hint, never as legal authority."""
     if force_domain:
         return route
 
@@ -132,7 +164,6 @@ def _cognition_expansions(case)->list[str]:
 
 
 def _feedback_review_expansions(message:str,primary_domain:str)->list[str]:
-    """Reuse only official-source-derived hints from a previously validated correction."""
     try:
         hint=runtime_store.feedback_review_hint(message,primary_domain)
     except Exception:
@@ -190,13 +221,13 @@ def handle_chat(req:ChatRequest)->ChatResponse:
         sources=_cloud_keyword_sources([effective_message],route.domains,8)
     if not sources:
         sources=repository.search(effective_message,route.domains,8)
+    sources=_guard_sources(route,sources)
 
     if cognition_queries and (not sources or route.confidence < 0.8 or review_queries):
         cognitive_sources=_cloud_keyword_sources([effective_message]+cognition_queries,route.domains,12)
         if not cognitive_sources:
-            cognitive_sources=repository.adaptive_search(
-                effective_message,route.domains,route.intent,12,cognition_queries
-            )
+            cognitive_sources=repository.adaptive_search(effective_message,route.domains,route.intent,12,cognition_queries)
+        cognitive_sources=_guard_sources(route,cognitive_sources)
         if cognitive_sources:
             sources=cognitive_sources
 
@@ -212,12 +243,14 @@ def handle_chat(req:ChatRequest)->ChatResponse:
         adaptive_sources=_cloud_keyword_sources([effective_message]+expansions,route.domains,12)
         if not adaptive_sources:
             adaptive_sources=repository.adaptive_search(effective_message,route.domains,route.intent,12,expansions)
+        adaptive_sources=_guard_sources(route,adaptive_sources)
         if adaptive_sources:
             adaptive_grounded,adaptive_eval=_choose_grounded(effective_message,route,adaptive_sources)
             if adaptive_grounded and (best_eval is None or adaptive_eval.score>=best_eval.score):
                 best_grounded,best_eval,best_sources=adaptive_grounded,adaptive_eval,adaptive_sources
                 used_adaptive=True
 
+    best_sources=_guard_sources(route,best_sources)
     case_analysis=None
     case_analysis_eval=None
     if case and route.intent=='legal_question':

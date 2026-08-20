@@ -53,7 +53,8 @@ jobs:
             tests/test_cognition_v21.py \
             tests/test_llm_cognition.py \
             tests/test_cognition_torture_contract.py \
-            tests/test_case_analysis_bilingual.py
+            tests/test_case_analysis_bilingual.py \
+            tests/test_conversation_threading.py
 
       - name: Run V3 regression tests
         run: |
