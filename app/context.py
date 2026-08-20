@@ -23,8 +23,6 @@ _EXPLICIT_NEW_CASE_MARKERS = (
     'قضية ثانية', 'قضيه ثانيه', 'new question', 'another question', 'new case', 'another case',
 )
 
-# Deliberately specific topic cues. They are used only to decide whether a message starts a
-# different conversation thread; they are never used as legal authority or legal classification.
 _TOPIC_CUES: dict[str, tuple[str, ...]] = {
     'traffic': (
         'حادث سير', 'كنت بسوق', 'بسوق', 'دهست', 'تصادم', 'سياره', 'سيارة', 'مركبه', 'مركبة',
@@ -121,22 +119,16 @@ def _looks_like_explicit_new_case(message: str) -> bool:
 
 
 def _answers_prior_clarification(message: str, last_assistant: str) -> bool:
-    """Detect replies that resolve facts the assistant just asked the user to clarify."""
     if not last_assistant:
         return False
     assistant_n = _n(last_assistant)
     message_n = _n(message)
-    overlap = 0
     for cues in _CLARIFICATION_CONCEPTS.values():
         assistant_has = any(_n(cue) in assistant_n for cue in cues)
         message_has = any(_n(cue) in message_n for cue in cues)
         if assistant_has and message_has:
-            overlap += 1
-    if overlap:
-        return True
+            return True
 
-    # A list of factual yes/no/negative statements immediately after a clarification-heavy answer
-    # is normally a reply to that answer even when the wording does not repeat the exact question.
     clarification_language = (
         'يلزم حسم', 'قد يلزم حسم', 'ما يزال', 'قبل التكييف', 'هل كان', 'هل وقع',
         'still material', 'still to resolve', 'before a final classification',
@@ -179,17 +171,14 @@ def _strong_topic_switch(message: str, route: RouteResult, recent_users: list[st
     if not current or not previous or current == previous:
         return False
     current_scores = _topic_scores(message)
-    # Require a real topical signal so a weak router guess cannot erase an active case thread.
-    return current_scores.get(current, 0) >= 1 and route.confidence >= 0.58
+    signal_strength = current_scores.get(current, 0)
+    # Two or more concrete topic cues are enough to start a new thread even when the lightweight
+    # first-pass router is still `general`; cognition will classify the new case afterwards.
+    return signal_strength >= 2 or (signal_strength >= 1 and route.confidence >= 0.58)
 
 
 def contextualize_message(message: str, history: list[dict], route: RouteResult) -> tuple[str, bool]:
-    """Carry forward the active case only when the new turn genuinely belongs to it.
-
-    The conversation may contain multiple legal matters. Follow-up facts, answers to clarifying
-    questions, and explicit corrections inherit the recent case facts. A clear topic switch starts
-    a fresh case thread even when the user keeps the same conversation_id.
-    """
+    """Carry forward the active case only when the new turn genuinely belongs to it."""
     recent = _recent_user_messages(history, 5)
     if not recent:
         return message, False
@@ -209,8 +198,6 @@ def contextualize_message(message: str, history: list[dict], route: RouteResult)
     if not should_link:
         return message, False
 
-    # Keep only the last two substantive user turns from the active thread. This gives cognition
-    # enough facts to resolve a clarification without dragging unrelated older matters into retrieval.
     prior = recent[-2:]
     if route.language == 'en':
         context = '\n'.join(prior)
