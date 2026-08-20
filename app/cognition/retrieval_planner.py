@@ -38,18 +38,26 @@ def build_retrieval_queries(case: CaseModel) -> list[str]:
                 "قانون أصول المحاكمات الأردني بدء ميعاد الطعن من الصدور أو التبليغ",
             ])
         elif h.code == "cyber.blackmail_threat":
+            # Short, corpus-validated phrases: Postgres' `simple` FTS config does no Arabic
+            # stemming/prefix-stripping and websearch_to_tsquery ANDs bare words together, so a
+            # long descriptive sentence matches nothing (verified against production via
+            # scripts/audit_legal_corpus_topics.py's lexical diagnostic probes — the previous
+            # 8-word query here returned 0 rows; "قانون الجرائم الإلكترونية الابتزاز" returned
+            # the Cybercrime Law Article 18 extortion provision directly).
             queries.extend([
-                "قانون الجرائم الإلكترونية الأردني الابتزاز الإلكتروني التهديد بنشر معلومات أو صور",
-                "قانون الجرائم الإلكترونية الأردني التهديد عبر الوسائل التقنية طلب منفعة أو مال",
+                "قانون الجرائم الإلكترونية الابتزاز",
+                "الجرائم الإلكترونية",
             ])
         elif h.code == "cyber.account_intrusion":
-            queries.append(
-                "قانون الجرائم الإلكترونية الأردني الدخول غير المصرح به إلى نظام معلومات أو حساب"
-            )
+            queries.extend([
+                "الدخول غير المصرح",
+                "الجرائم الإلكترونية",
+            ])
         elif h.code == "cyber.private_data_misuse":
-            queries.append(
-                "قانون الجرائم الإلكترونية الأردني إفشاء أو استخدام بيانات أو معلومات خاصة دون تصريح"
-            )
+            queries.extend([
+                "قانون حماية البيانات الشخصية",
+                "الجرائم الإلكترونية",
+            ])
 
     # Preserve order while removing duplicates.
     unique: list[str] = []
