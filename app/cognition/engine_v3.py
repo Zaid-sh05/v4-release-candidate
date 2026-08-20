@@ -4,7 +4,7 @@ from .case_graph import build_case_graph
 from .clarification import choose_questions
 from .decision_gate import decide_next_action
 from .engine_v21 import CaseCognitionEngine as BaseCaseCognitionEngine
-from .issue_spotter import spot_issues
+from .issue_spotter_v4 import spot_issues
 from .retrieval_planner import build_retrieval_queries
 from .scenario_sanity import apply_scenario_sanity
 
