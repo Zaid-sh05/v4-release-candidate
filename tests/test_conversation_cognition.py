@@ -34,6 +34,20 @@ def test_new_explicit_penalty_question_starts_new_case():
     assert "labor.termination" not in _codes(case)
 
 
+def test_short_unrelated_new_case_does_not_inherit_prior_domain():
+    # ConversationCaseState._is_followup's length-based fallback (<=12 words, no explicit
+    # new-topic marker) unconditionally treated ANY short message as a followup to
+    # current_case, with no gate at all - unlike app.context's equivalent fallback. A short
+    # new theft report right after a labor case would rebuild the case with both domains
+    # merged, contaminating a brand-new case with the prior one's facts/hypotheses.
+    state = ConversationCaseState()
+    state.ingest("فصلني صاحب العمل بدون إنذار، شو حقوقي؟")
+    case, continued = state.ingest("سرقولي موبايلي من الشارع")
+    assert continued is False
+    assert case.domains == ["criminal"]
+    assert "labor.termination" not in _codes(case)
+
+
 def test_intent_clarification_updates_homicide_hypothesis():
     state = ConversationCaseState()
     state.ingest("صار حادث ومات شخص")

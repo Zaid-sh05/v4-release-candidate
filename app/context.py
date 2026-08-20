@@ -118,6 +118,56 @@ def _looks_like_explicit_new_case(message: str) -> bool:
     return _contains_any(message, _EXPLICIT_NEW_CASE_MARKERS)
 
 
+_RETURN_TO_TOPIC_MARKERS = (
+    'نرجع ل', 'نرجع الى', 'نرجع إلى', 'رجعنا ل', 'بدي نرجع', 'بدي ارجع', 'خلينا نرجع',
+    'نكمل موضوع', 'كملنا موضوع', 'عودة الى موضوع', 'عودة إلى موضوع', 'بالنسبة لموضوع',
+    'back to the', 'go back to', 'going back to', "let's go back to", 'return to the',
+    'returning to the',
+)
+
+
+def _looks_like_return_to_topic(message: str) -> bool:
+    return _contains_any(message, _RETURN_TO_TOPIC_MARKERS)
+
+
+def _find_reactivation_target(route: RouteResult, recent_users: list[str]) -> str | None:
+    """Find the most recent earlier user message matching an explicit "return to X" request.
+
+    The return phrase itself rarely repeats the original narrative's vocabulary (e.g.
+    "نرجع لموضوع الفصل التعسفي" shares no _TOPIC_CUES words with "فصلني صاحب العمل..."), but
+    the main router already resolves route.primary_domain for the full return message via its
+    richer keyword set, so that is used as the target domain instead.
+    """
+    wanted = route.primary_domain
+    if not wanted or wanted in {'general', 'conversation'}:
+        return None
+    for candidate in reversed(recent_users):
+        if _dominant_topic(candidate) == wanted:
+            return candidate
+    return None
+
+
+_CLARIFICATION_LANGUAGE = (
+    'يلزم حسم', 'قد يلزم حسم', 'ما يزال', 'قبل التكييف', 'هل كان', 'هل وقع',
+    'still material', 'still to resolve', 'before a final classification',
+)
+
+
+def _last_assistant_asked_something(last_assistant: str) -> bool:
+    """True only when the prior turn actually invited a short follow-up answer.
+
+    A completed case analysis or final answer does not ask anything, so a short
+    unrelated message that follows it must not be silently merged into that case
+    just because it is short or the lightweight router could not classify it.
+    """
+    if not last_assistant:
+        return False
+    assistant_n = _n(last_assistant)
+    if '؟' in last_assistant or '?' in last_assistant:
+        return True
+    return any(_n(x) in assistant_n for x in _CLARIFICATION_LANGUAGE)
+
+
 def _answers_prior_clarification(message: str, last_assistant: str) -> bool:
     if not last_assistant:
         return False
@@ -129,15 +179,11 @@ def _answers_prior_clarification(message: str, last_assistant: str) -> bool:
         if assistant_has and message_has:
             return True
 
-    clarification_language = (
-        'يلزم حسم', 'قد يلزم حسم', 'ما يزال', 'قبل التكييف', 'هل كان', 'هل وقع',
-        'still material', 'still to resolve', 'before a final classification',
-    )
     answer_shaped = (
         message_n.startswith('نعم') or message_n.startswith('لا ') or ' لم ' in f' {message_n} '
         or ' من غير ' in f' {message_n} ' or '\n' in message
     )
-    return any(_n(x) in assistant_n for x in clarification_language) and answer_shaped
+    return any(_n(x) in assistant_n for x in _CLARIFICATION_LANGUAGE) and answer_shaped
 
 
 def _looks_like_followup_detail(message: str, route: RouteResult, last_assistant: str = '') -> bool:
@@ -157,14 +203,25 @@ def _looks_like_followup_detail(message: str, route: RouteResult, last_assistant
         return True
     if any(_n(x) in n for x in detail_markers):
         return True
+    # A short, lexically-unrecognized message is only weak evidence of "same case" when the
+    # assistant actually asked something. Otherwise a brand-new short case (a different theft,
+    # a different family matter) after a completed answer would silently inherit old facts.
+    if not _last_assistant_asked_something(last_assistant):
+        return False
     if len(tokens) <= 14 and not any(x in n for x in ('شو', 'كيف', 'كم', 'هل', 'ما هي', 'ما هو', 'ليش', 'لماذا', 'what', 'how', 'why')):
         if re.search(r'\d', message) or route.primary_domain == 'general' or route.confidence < 0.55:
             return True
     return route.primary_domain == 'general' or route.confidence < 0.42
 
 
-def _strong_topic_switch(message: str, route: RouteResult, recent_users: list[str]) -> bool:
+def _strong_topic_switch(message: str, route: RouteResult, recent_users: list[str], last_assistant: str = '') -> bool:
     if not recent_users or _looks_like_correction(message):
+        return False
+    # Concept-level evidence that this message directly answers a specific prior clarifying
+    # question is stronger and more precise than the topic-switch heuristic below, which only
+    # scores incidental keyword overlap and can misfire (e.g. "the owner did not consent"
+    # sharing "consent" vocabulary with unrelated marriage-consent keywords).
+    if _answers_prior_clarification(message, last_assistant):
         return False
     current = route.primary_domain if route.primary_domain not in {'general', 'conversation'} else _dominant_topic(message)
     previous = _dominant_topic(recent_users[-1])
@@ -183,11 +240,18 @@ def contextualize_message(message: str, history: list[dict], route: RouteResult)
     if not recent:
         return message, False
 
+    if _looks_like_return_to_topic(message):
+        target = _find_reactivation_target(route, recent)
+        if target:
+            if route.language == 'en':
+                return f'Previous facts from the same case:\n{target}\nNew follow-up facts or correction:\n{message}', True
+            return f'وقائع سابقة من نفس القضية:\n{target}\nتفاصيل متابعة أو تصحيح جديد من المستخدم:\n{message}', True
+
     if _looks_like_explicit_new_case(message):
         return message, False
 
     last_assistant = _last_assistant_message(history)
-    if _strong_topic_switch(message, route, recent):
+    if _strong_topic_switch(message, route, recent, last_assistant):
         return message, False
 
     should_link = (
