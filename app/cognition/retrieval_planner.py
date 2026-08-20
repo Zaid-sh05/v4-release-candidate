@@ -37,6 +37,19 @@ def build_retrieval_queries(case: CaseModel) -> list[str]:
                 "القانون الأردني مدة الاستئناف حسب نوع القضية والمحكمة وصف الحكم",
                 "قانون أصول المحاكمات الأردني بدء ميعاد الطعن من الصدور أو التبليغ",
             ])
+        elif h.code == "cyber.blackmail_threat":
+            queries.extend([
+                "قانون الجرائم الإلكترونية الأردني الابتزاز الإلكتروني التهديد بنشر معلومات أو صور",
+                "قانون الجرائم الإلكترونية الأردني التهديد عبر الوسائل التقنية طلب منفعة أو مال",
+            ])
+        elif h.code == "cyber.account_intrusion":
+            queries.append(
+                "قانون الجرائم الإلكترونية الأردني الدخول غير المصرح به إلى نظام معلومات أو حساب"
+            )
+        elif h.code == "cyber.private_data_misuse":
+            queries.append(
+                "قانون الجرائم الإلكترونية الأردني إفشاء أو استخدام بيانات أو معلومات خاصة دون تصريح"
+            )
 
     # Preserve order while removing duplicates.
     unique: list[str] = []
