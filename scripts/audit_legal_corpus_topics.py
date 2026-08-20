@@ -51,6 +51,22 @@ HARD_NEGATIVE_PROBES = [
     ),
 ]
 
+# Word-count-graduated diagnostic probes to isolate *why* the hard-negative probes above
+# returned zero rows: websearch_to_tsquery ANDs bare words together, so a long natural
+# sentence needs every single word to appear verbatim in a chunk. These probes strip a
+# known-good phrase down word by word to find where the match count goes from >0 to 0.
+LEXICAL_DIAGNOSTIC_PROBES = [
+    ("cyber: 2-word statute-style phrase", "الجرائم الإلكترونية", ["cyber"]),
+    ("cyber: 4-word legal phrase", "قانون الجرائم الإلكترونية الابتزاز", ["cyber"]),
+    ("cyber: our retrieval_planner.py query (8 words)",
+     "قانون الجرائم الإلكترونية الأردني الابتزاز الإلكتروني التهديد بنشر معلومات أو صور", ["cyber"]),
+    ("cyber: single word", "ابتزاز", ["cyber"]),
+    ("criminal: 2-word statute-style phrase", "كسر قفل", ["criminal"]),
+    ("criminal: single word", "سرقة", ["criminal"]),
+    ("labor: single word", "فصل", ["labor"]),
+    ("labor: 2-word phrase", "إنهاء عقد", ["labor"]),
+]
+
 
 def rpc_keyword_search(query_text: str, filter_domains: list[str], match_count: int = 8) -> list[dict]:
     r = httpx.post(
@@ -146,6 +162,25 @@ def main() -> int:
                 f"article={row.get('article')} title={row.get('title')[:60]!r}"
             )
             print(f"        excerpt: {excerpt}")
+
+    print("\n" + "=" * 70)
+    print("LEXICAL DIAGNOSTIC PROBES (word-count graduated)")
+    print("Isolating whether AND-semantics over long sentences is why the hard-negative")
+    print("probes above returned zero rows.")
+    print("=" * 70)
+    for label, query_text, filter_domains in LEXICAL_DIAGNOSTIC_PROBES:
+        print(f"\n-- {label} --")
+        print(f"   query: {query_text!r}  filter_domains: {filter_domains}")
+        try:
+            rows = rpc_keyword_search(query_text, filter_domains, 5)
+        except Exception as exc:
+            print(f"   ERROR calling RPC: {type(exc).__name__}: {exc}")
+            exit_code = 1
+            continue
+        if not rows:
+            print("   -> 0 matches")
+            continue
+        print(f"   -> {len(rows)} matches, top: score={rows[0].get('score'):.4f} title={rows[0].get('title')[:60]!r}")
 
     print("\nDone. This script does not assert pass/fail — it reports measurements")
     print("for a human/agent to read and decide the Phase 2 architecture from.")
