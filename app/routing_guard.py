@@ -173,27 +173,42 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
 
     appeal = _has(text, "استئناف", "استأنف", "استانف", "تمييز", "طعن", "appeal", "cassation")
     complaint = _has(text, "شكوى", "المدعي العام", "مدعي عام", "نيابة عامة", "ادعاء عام", "complaint", "prosecutor")
-    personal = _has(text, "طلاق", "خلع", "نفقة", "حضانة", "زواج", "مطلقة", "طليقي", "محكمة شرعية", "divorce", "custody", "alimony")
-    labor = _has(text, "فصلني", "طردني", "الفصل", "سبب الفصل", "صاحب العمل", "عقد عمل", "راتب", "اجر", "إنذار مكتوب", "انذار مكتوب", "ضعف الاداء", "employer", "fired", "dismissed")
-    traffic = _traffic_context(text)
-    property_crime = _property_crime_context(text)
-    cyber = _has(
-        text,
+    personal_terms = ("طلاق", "أطلق", "اطلق", "خلع", "نفقة", "حضانة", "زواج", "مطلقة", "طليقي", "محكمة شرعية", "divorce", "custody", "alimony")
+    labor_terms = ("فصلني", "طردني", "الفصل", "سبب الفصل", "صاحب العمل", "عقد عمل", "الشغل", "راتب", "اجر", "إنذار مكتوب", "انذار مكتوب", "ضعف الاداء", "employer", "fired", "dismissed")
+    cyber_terms = (
         "واتساب", "انستغرام", "فيسبوك", "ابتزاز", "ابتزني", "ببتزني", "يبتزني",
         "اختراق", "تهكير", "whatsapp", "online blackmail", "cybercrime",
     )
-    threat = _has(
-        text,
+    threat_terms = (
         "هدد", "هددني", "يهددني", "بهددني", "بتهددني", "تهديد",
         "ابتزاز", "ابتزني", "ببتزني", "يبتزني", "مبتزني",
         "threat", "blackmail", "extortion",
     )
-    violence = _has(text, "قتل", "قتله", "اعتداء", "ضرب", "ضربني", "طعن", "هاجمني", "سلاح", "سرقة", "سرقت", "سرق", "murder", "assault", "theft")
-    taking = _has(text, "أخذ", "اخذ", "اخد", "أخذت", "اخذت", "سرق", "سرقت", "استولى", "took", "stole")
-    forced_entry = _has(text, "كسر", "كسر قفل", "خلع", "دخل البيت", "دخل المنزل", "تسلل", "اقتحم", "forced entry")
-    self_defense = _has(text, "دفاع عن نفسي", "دفاعا عن نفسي", "هاجمني", "self defense", "self-defense")
-    injury = _has(text, "اصابة", "إصابة", "انصاب", "اصيب", "أصيب", "جرح", "المستشفى", "injury", "injured", "hospital")
-    death = _has(text, "وفاة", "توفي", "توفى", "مات", "قتل", "death", "died", "killed")
+    violence_terms = ("قتل", "قتله", "اعتداء", "ضرب", "ضربني", "طعن", "هاجمني", "سلاح", "سرقة", "سرقت", "سرق", "murder", "assault", "theft")
+    taking_terms = ("أخذ", "اخذ", "اخد", "أخذت", "اخذت", "سرق", "سرقت", "استولى", "took", "stole")
+    forced_entry_terms = ("كسر", "كسر قفل", "خلع", "دخل البيت", "دخل المنزل", "تسلل", "اقتحم", "forced entry")
+    self_defense_terms = ("دفاع عن نفسي", "دفاعا عن نفسي", "هاجمني", "self defense", "self-defense")
+    injury_terms = ("اصابة", "إصابة", "انصاب", "اصيب", "أصيب", "جرح", "المستشفى", "injury", "injured", "hospital")
+    death_terms = ("وفاة", "توفي", "توفى", "مات", "قتل", "death", "died", "killed")
+
+    # Dialect/typo tolerance must be applied uniformly across every domain guard, not only
+    # traffic/property-crime, otherwise personal-status, labor and cyber routing silently
+    # loses the same conservative fuzzy matching the rest of the router already relies on.
+    def _matches(*phrases: str) -> bool:
+        return _has(text, *phrases) or contains_fuzzy(text, *phrases)
+
+    personal = _matches(*personal_terms)
+    labor = _matches(*labor_terms)
+    traffic = _traffic_context(text)
+    property_crime = _property_crime_context(text)
+    cyber = _matches(*cyber_terms)
+    threat = _matches(*threat_terms)
+    violence = _matches(*violence_terms)
+    taking = _matches(*taking_terms)
+    forced_entry = _matches(*forced_entry_terms)
+    self_defense = _matches(*self_defense_terms)
+    injury = _matches(*injury_terms)
+    death = _matches(*death_terms)
 
     if appeal:
         extras: list[str] = []
