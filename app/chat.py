@@ -173,6 +173,22 @@ def _feedback_review_expansions(message:str,primary_domain:str)->list[str]:
     return out
 
 
+def _needs_broad_synthesis(message:str,route:RouteResult)->bool:
+    if route.intent in {'penalty','deadline','appeal_deadline','fees','judgment'}:
+        return False
+    if route.language=='en':
+        low=(message or '').lower()
+        return any(x in low for x in (
+            'what are the cases','main cases','situations','types of','when is','when can','conditions',
+            'exceptions','overview','explain the law','grounds for','examples of',
+        ))
+    n=normalize_ar(message or '')
+    return any(normalize_ar(x) in n for x in (
+        'حالات','ما هي الحالات','متى يعتبر','متى يكون','انواع','أنواع','شروط','استثناءات',
+        'اشرح القانون','شرح القانون','نظرة عامة','اسباب','أسباب','صور الفصل','امثلة','أمثلة',
+    ))
+
+
 def handle_chat(req:ChatRequest)->ChatResponse:
     prior_history=[]
     if req.conversation_id:
@@ -199,6 +215,7 @@ def handle_chat(req:ChatRequest)->ChatResponse:
 
     review_queries=_feedback_review_expansions(req.message,route.primary_domain) if route.intent!='smalltalk' else []
     cognition_queries=list(dict.fromkeys(cognition_queries+review_queries))[:10]
+    broad_synthesis=_needs_broad_synthesis(effective_message,route)
 
     cid=runtime_store.ensure_conversation(req.conversation_id,route.language)
     runtime_store.save_message(cid,'user',req.message,route.primary_domain,route.intent)
@@ -217,7 +234,7 @@ def handle_chat(req:ChatRequest)->ChatResponse:
         sources=repository.search(effective_message,route.domains,8)
     sources=_guard_sources(route,sources)
 
-    if cognition_queries and (not sources or route.confidence < 0.8 or review_queries):
+    if cognition_queries and (not sources or route.confidence < 0.8 or review_queries or broad_synthesis):
         cognitive_sources=_cloud_keyword_sources([effective_message]+cognition_queries,route.domains,12)
         if not cognitive_sources:
             cognitive_sources=repository.adaptive_search(effective_message,route.domains,route.intent,12,cognition_queries)
@@ -231,7 +248,7 @@ def handle_chat(req:ChatRequest)->ChatResponse:
     best_sources=sources
     used_adaptive=bool(review_queries)
 
-    if grounded is None or grounded.strength!='strong' or (evaluation and evaluation.should_retry):
+    if broad_synthesis or grounded is None or grounded.strength!='strong' or (evaluation and evaluation.should_retry):
         evaluation_seed=evaluation or evaluate_answer(effective_message,route,'',sources)
         expansions=list(dict.fromkeys((evaluation_seed.expanded_queries or [])+cognition_queries))[:10]
         adaptive_sources=_cloud_keyword_sources([effective_message]+expansions,route.domains,12)
@@ -240,7 +257,7 @@ def handle_chat(req:ChatRequest)->ChatResponse:
         adaptive_sources=_guard_sources(route,adaptive_sources)
         if adaptive_sources:
             adaptive_grounded,adaptive_eval=_choose_grounded(effective_message,route,adaptive_sources)
-            if adaptive_grounded and (best_eval is None or adaptive_eval.score>=best_eval.score):
+            if adaptive_grounded and (best_eval is None or adaptive_eval.score>=best_eval.score or broad_synthesis):
                 best_grounded,best_eval,best_sources=adaptive_grounded,adaptive_eval,adaptive_sources
                 used_adaptive=True
 
@@ -256,8 +273,6 @@ def handle_chat(req:ChatRequest)->ChatResponse:
     cognition_suffix='-cognition' if case and case.cognition_provider!='deterministic' else ''
     extractive_mode=('official-adaptive-extractive' if used_adaptive else 'official-self-checked-extractive')+cognition_suffix
 
-    # First build the safest deterministic answer. OpenAI is allowed to improve the writing and
-    # synthesis afterwards, but it never becomes the source of legal truth.
     base_answer=None
     base_eval=best_eval
     base_mode=extractive_mode
@@ -277,9 +292,6 @@ def handle_chat(req:ChatRequest)->ChatResponse:
     answer=base_answer
     mode=base_mode
 
-    # With an API key configured, use the frontier model as a grounded legal writer over the
-    # deterministic draft + case graph + official excerpts. The LLM layer self-disables on any
-    # citation/number grounding violation and the deterministic answer remains the fallback.
     llm_answer=generate_answer(
         effective_message,
         route,
