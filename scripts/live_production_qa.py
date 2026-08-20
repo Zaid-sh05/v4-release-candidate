@@ -12,7 +12,7 @@ import httpx
 BASE_URL = os.getenv("QANONI_BASE_URL", "https://qanoni-alurdoni.up.railway.app").rstrip("/")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-TIMEOUT = 35.0
+TIMEOUT = 45.0
 EMOJI = re.compile(r"[\U0001F1E6-\U0001FAFF\u2600-\u27BF]+")
 
 created_conversations: list[str] = []
@@ -47,7 +47,23 @@ def post_chat(client: httpx.Client, message: str, *, language: str = "ar", force
     payload: dict[str, Any] = {"message": message, "language": language}
     if force_domain:
         payload["force_domain"] = force_domain
-    r = client.post(f"{BASE_URL}/api/chat", json=payload)
+
+    # Railway can occasionally have a cold/slow request while a new deployment is settling. Retry
+    # a transport timeout once only. HTTP errors, bad routing, bad answers, source leakage and every
+    # semantic assertion still fail immediately and are never hidden by this retry.
+    response: httpx.Response | None = None
+    for attempt in range(2):
+        try:
+            response = client.post(f"{BASE_URL}/api/chat", json=payload)
+            break
+        except httpx.ReadTimeout:
+            if attempt == 0:
+                print(f"[RETRY] transient read timeout for {message!r}")
+                continue
+            raise
+
+    assert response is not None
+    r = response
     if r.status_code != 200:
         fail(f"chat {r.status_code}: {message!r}: {r.text[:500]}")
     data = r.json()

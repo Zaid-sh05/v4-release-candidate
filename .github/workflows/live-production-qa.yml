@@ -9,7 +9,7 @@ on:
 jobs:
   live-qa:
     runs-on: ubuntu-latest
-    timeout-minutes: 16
+    timeout-minutes: 20
     env:
       QANONI_BASE_URL: https://qanoni-alurdoni.up.railway.app
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -35,3 +35,6 @@ jobs:
 
       - name: Run live lawyer torture suite
         run: python scripts/live_lawyer_torture.py
+
+      - name: Run live cross-domain lawyer V5
+        run: python scripts/live_cross_domain_v5.py
