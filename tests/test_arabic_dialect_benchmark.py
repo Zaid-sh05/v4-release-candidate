@@ -31,6 +31,7 @@ CASES: tuple[tuple[str, str], ...] = (
     ("واحد سررقني من البيت وهرب", "criminal"),
     ("صاحب الشغل طردني بدون سبب وما اعطاني اجري", "labor"),
     ("زوجي بدو ياخذ الاولاد ومانع عني الحضانه", "personal_status"),
+    ("زوجي ما بيسمحلي اشوف ولادي", "personal_status"),
     # Mixed Arabic/English
     ("فصلني manager بدون warning", "labor"),
     ("he brok القفل and stol laptop", "criminal"),
@@ -66,3 +67,9 @@ def test_jordanian_dialect_verb_conjugation_variants_route_correctly():
     # traffic/property-crime checks used fuzzy matching; every domain guard does now.
     assert route_query("بدي أطلق زوجتي، شو الطريقة القانونية؟", "ar", None).primary_domain == "personal_status"
     assert route_query("شو حقوقي اذا فصلوني من الشغل بدون سبب؟", "ar", None).primary_domain == "labor"
+
+
+def test_custody_visitation_dialect_phrasing_routes_to_personal_status():
+    # "اشوف ولادي" (see my kids) has no lexical overlap with "حضانة"/"طلاق" so fuzzy
+    # matching alone can't bridge it; this is a real keyword-list gap, not a typo.
+    assert route_query("زوجي ما بيسمحلي اشوف ولادي", "ar", None).primary_domain == "personal_status"
