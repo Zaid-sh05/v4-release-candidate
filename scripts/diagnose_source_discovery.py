@@ -282,12 +282,21 @@ def diagnose_url(url: str) -> None:
         print(f"    primary (pypdf): {pdf_report['primary_article_count']} articles detected, "
               f"{pdf_report['primary_time_seconds']:.2f}s, "
               f"looked reversed-Arabic: {pdf_report['primary_looks_reversed']}")
+        if pdf_report["bidi_attempted"]:
+            print(f"    BiDi reconstruction of pypdf text: {pdf_report['bidi_article_count']} "
+                  f"articles detected, {pdf_report['bidi_time_seconds']:.2f}s")
+        else:
+            print("    BiDi reconstruction: not attempted (primary already had articles, or "
+                  "did not look reversed-Arabic)")
         if pdf_report["fallback_attempted"]:
             if pdf_report["fallback_error"]:
                 print(f"    fallback (pdfplumber): ERROR {pdf_report['fallback_error']}")
             else:
                 print(f"    fallback (pdfplumber): {pdf_report['fallback_article_count']} articles "
                       f"detected, {pdf_report['fallback_time_seconds']:.2f}s")
+                if pdf_report["fallback_bidi_attempted"]:
+                    print(f"    BiDi reconstruction of pdfplumber text: "
+                          f"{pdf_report['fallback_bidi_article_count']} articles detected")
         else:
             print("    fallback: not attempted (primary already had articles, or did not look "
                   "reversed-Arabic)")
