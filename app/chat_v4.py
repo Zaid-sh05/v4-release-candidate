@@ -6,7 +6,7 @@ from __future__ import annotations
 # the whole chat stack.
 from . import chat as _legacy_chat
 from .lawyer_case_analysis_v5 import generate_lawyer_case_analysis_answer
-from .routing_guard import apply_case_route, route_query
+from .routing_guard_v5 import apply_case_route, route_query
 from .source_quality import looks_garbled_legal_text
 from .text import normalize_ar
 
