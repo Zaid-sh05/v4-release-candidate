@@ -6,26 +6,17 @@ from .clarification import choose_questions
 from .decision_gate import decide_next_action
 from .engine import CaseCognitionEngine as BaseCaseCognitionEngine
 from .issue_spotter import spot_issues
-from .models import MaterialDecision, SemanticSignal
+from .language_match import contains_fuzzy, normalize_flexible
+from .models import Event, MaterialDecision, SemanticSignal
 from .retrieval_planner import build_retrieval_queries
 
 
 def _norm(text: str) -> str:
-    return " ".join(
-        (text or "").lower()
-        .replace("أ", "ا")
-        .replace("إ", "ا")
-        .replace("آ", "ا")
-        .replace("ٱ", "ا")
-        .replace("ى", "ي")
-        .replace("ؤ", "و")
-        .split()
-    )
+    return normalize_flexible(text)
 
 
 def _contains(text: str, *terms: str) -> bool:
-    n = _norm(text)
-    return any(_norm(term) in n for term in terms)
+    return contains_fuzzy(text, *terms)
 
 
 def _add_signal(case, code: str, support_span: str, confidence: str = "high") -> None:
@@ -42,11 +33,7 @@ def _add_signal(case, code: str, support_span: str, confidence: str = "high") ->
 
 
 def _seed_deterministic_signals(case) -> None:
-    """Add high-value semantic cues that must not depend on optional LLM availability.
-
-    These are language-understanding signals only. They are never legal conclusions and
-    never replace grounded legal retrieval.
-    """
+    """Add high-value semantic cues that must not depend on optional LLM availability."""
     text = case.raw_message
 
     if _contains(
@@ -74,7 +61,7 @@ def _seed_deterministic_signals(case) -> None:
     if _contains(text, "فصلني", "طردني", "انهاء عقد", "إنهاء عقد", "سبب الفصل", "fired", "dismissed", "terminated", "let me go from my job"):
         _add_signal(case, "employment.termination", "ذكر المستخدم إنهاء علاقة العمل")
 
-    if _contains(text, "سرق", "سرقة", "أخذ", "اخذ", "استولى", "took", "stole", "stolen"):
+    if _contains(text, "سرق", "سرقة", "أخذ", "اخذ", "اخد", "استولى", "took", "stole", "stolen", "theft"):
         _add_signal(case, "property.taking", "ذكر المستخدم أخذ أو استيلاء على مال")
 
     if _contains(text, "توفي", "توفى", "مات", "وفاة", "قتل", "died", "death", "killed"):
@@ -88,9 +75,9 @@ def _seed_deterministic_signals(case) -> None:
 
 
 _EVENT_CUES: dict[str, tuple[str, ...]] = {
-    "entry": ("دخل", "دخول", "تسلل", "اقتحم", "entered", "entry", "broke in"),
-    "breaking": ("كسر", "خلع", "حطم", "broke", "breaking", "forced"),
-    "taking": ("أخذ", "اخذ", "سرق", "استولى", "استيلاء", "took", "stole", "stolen", "taking"),
+    "entry": ("دخل", "دخول", "تسلل", "اقتحم", "entered", "entry", "broke in", "broke into", "entered the house", "entered the home"),
+    "breaking": ("كسر", "خلع", "حطم", "broke", "breaking", "forced entry", "broke the lock", "broke the door"),
+    "taking": ("أخذ", "اخذ", "اخد", "سرق", "استولى", "استيلاء", "took", "stole", "stolen", "taking", "theft"),
     "violence": ("ضرب", "طعن", "اعتدى", "هاجم", "اطلق", "أطلق", "hit", "stabbed", "assaulted", "attacked", "shot"),
     "death": ("توفي", "توفى", "مات", "قتل", "وفاة", "died", "death", "killed"),
     "injury": ("اصيب", "أصيب", "انصاب", "جرح", "اصابة", "إصابة", "injured", "injury", "hurt"),
@@ -101,14 +88,51 @@ _EVENT_CUES: dict[str, tuple[str, ...]] = {
     "communication": ("قال", "قالت", "بحكي", "رسالة", "واتساب", "ابلغ", "أبلغ", "said", "told", "message", "whatsapp"),
 }
 
+_SYNTHESIZED_EVENT_TYPES = (
+    "entry", "breaking", "taking", "violence", "death", "injury", "threat",
+    "termination", "judgment", "payment",
+)
+
+
+def _support_sentence(text: str, cues: tuple[str, ...]) -> str:
+    sentences = [part.strip(" ،.\t") for part in re.split(r"[\n\r.!؟?؛]+", text or "") if part.strip(" ،.\t")]
+    for sentence in sentences:
+        if _contains(sentence, *cues):
+            return sentence
+    return (text or "").strip()[:600]
+
+
+def _seed_deterministic_events(case) -> bool:
+    """Fill material events the legacy Arabic-first parser missed.
+
+    The added event is always anchored to a sentence from the user's own message. Fuzzy
+    matching is only used to recognize the event type, never to add a legal conclusion.
+    """
+    existing = {event.event_type for event in case.events}
+    changed = False
+    for event_type in _SYNTHESIZED_EVENT_TYPES:
+        if event_type in existing:
+            continue
+        cues = _EVENT_CUES[event_type]
+        if not _contains(case.raw_message, *cues):
+            continue
+        span = _support_sentence(case.raw_message, cues)
+        case.events.append(
+            Event(
+                order=len(case.events) + 1,
+                text=span,
+                event_type=event_type,
+                source="deterministic",
+                support_span=span,
+            )
+        )
+        existing.add(event_type)
+        changed = True
+    return changed
+
 
 def _prune_semantically_invalid_llm_events(case) -> bool:
-    """Reject LLM-only event labels that are grounded textually but semantically mismatched.
-
-    Grounding alone is not enough: a model can quote "نقلوه عالمستشفى" and still label
-    it as a taking event. Hybrid events already corroborated by deterministic parsing are
-    preserved; only unsupported LLM-only labels are removed.
-    """
+    """Reject LLM-only event labels that are grounded textually but semantically mismatched."""
     kept = []
     changed = False
     for event in case.events:
@@ -157,15 +181,9 @@ _RAW_EXPLICIT_GOAL_CUES = (
 
 
 def _is_raw_short_ambiguous(message: str) -> bool:
-    """Classify a short bare factual utterance before optional LLM enrichment.
-
-    This deliberately depends only on the user's original message. The LLM may add
-    structure, but it must not turn a bare phrase such as "أخذ المصاري ومشي" into a
-    sufficiently complete case for retrieval when the user never stated a legal goal.
-    """
     normalized = _norm(message)
-    tokens = re.findall(r"[A-Za-z0-9_\u0600-\u06ff]+", normalized)
-    if not tokens or len(tokens) > 6:
+    prompt_tokens = re.findall(r"[A-Za-z0-9_\u0600-\u06ff]+", normalized)
+    if not prompt_tokens or len(prompt_tokens) > 6:
         return False
     if _contains(message, *_RAW_EXPLICIT_GOAL_CUES):
         return False
@@ -173,23 +191,18 @@ def _is_raw_short_ambiguous(message: str) -> bool:
 
 
 def _is_short_ambiguous(case) -> bool:
-    tokens = [token for token in case.raw_message.replace("؟", " ").replace("?", " ").split() if token]
-    if case.user_goal != "legal_analysis" or len(tokens) > 6:
+    prompt_tokens = [token for token in case.raw_message.replace("؟", " ").replace("?", " ").split() if token]
+    if case.user_goal != "legal_analysis" or len(prompt_tokens) > 6:
         return False
     if case.dates or case.amounts or case.evidence:
         return False
-    # A short bare act such as "أخذ المصاري ومشي" should trigger clarification rather
-    # than preliminary legal retrieval. Specific penalty/appeal/rights questions are
-    # handled by their explicit user_goal and do not enter this branch.
     return len(case.facts) <= 1 and len(case.events) <= 2
 
 
 class CaseCognitionEngine(BaseCaseCognitionEngine):
-    """Cognition V2.4 wrapper with deterministic semantics and LLM safety validation."""
+    """Cognition V2.5 wrapper with bilingual typo-tolerant semantic validation."""
 
     def analyze(self, message: str, language: str = "ar"):
-        # Compute this before LLM enrichment so model-added structure cannot erase
-        # ambiguity that was present in the user's original utterance.
         raw_short_ambiguous = _is_raw_short_ambiguous(message)
         case = super().analyze(message, language)
 
@@ -197,12 +210,11 @@ class CaseCognitionEngine(BaseCaseCognitionEngine):
         _seed_deterministic_signals(case)
         after_signals = {(signal.code, signal.support_span) for signal in case.semantic_signals}
 
+        events_seeded = _seed_deterministic_events(case)
         events_changed = _prune_semantically_invalid_llm_events(case)
         disputed_changed = _mark_disputed_facts(case)
 
-        # New semantic cues or event validation can materially change competing
-        # hypotheses, retrieval planning, and clarification priority.
-        if after_signals != before_signals or events_changed or disputed_changed:
+        if after_signals != before_signals or events_seeded or events_changed or disputed_changed:
             case.hypotheses = spot_issues(case)
             case.domains = list(dict.fromkeys(h.domain for h in case.hypotheses)) or ["general"]
             case.clarifying_questions = choose_questions(case)

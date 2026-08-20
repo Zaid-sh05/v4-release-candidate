@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from .cognition.language_match import contains_fuzzy
 from .models import RouteResult
 from .router import DOMAIN_LABELS, analyze_query
 from .text import normalize_ar
@@ -14,7 +15,7 @@ _SMALLTALK_ONLY = {
 
 _TOKEN_EDGE_RE = re.compile(r"^[\s\.,،؛:!?؟()\[\]{}\"'«»]+|[\s\.,،؛:!?؟()\[\]{}\"'«»]+$")
 _SHORT_WAW_VERB_STEMS = {
-    "اخذ", "كسر", "دخل", "ضرب", "قتل", "سرق", "طعن", "مات",
+    "اخذ", "اخد", "كسر", "دخل", "ضرب", "قتل", "سرق", "طعن", "مات",
 }
 
 
@@ -24,9 +25,6 @@ def _canonical_token(token: str) -> str:
     if not token:
         return ""
 
-    # Strip only safe Arabic article/clitic combinations. Never strip a bare و/ب/ف
-    # here because words such as واتساب would otherwise be damaged. Bare conjunctions
-    # are handled as alternate matching variants instead of mutating the source token.
     for prefix in ("وال", "فال", "بال", "كال", "لل", "ال"):
         if token.startswith(prefix) and len(token) > len(prefix) + 2:
             token = token[len(prefix):]
@@ -35,14 +33,7 @@ def _canonical_token(token: str) -> str:
 
 
 def _token_variants(token: str) -> set[str]:
-    """Return conservative spoken-Arabic clitic variants for matching only.
-
-    Jordanian users frequently attach the conjunction waw to verbs (وأخذ، وانصاب)
-    and contract على + ال into عالـ (عالمستشفى). Keep the original token and expose
-    a stripped alternative without globally rewriting words that genuinely start with و.
-    Short three-letter verb stems are explicitly allowlisted so a word such as وعده
-    cannot accidentally become عدة and trigger personal-status routing.
-    """
+    """Return conservative spoken-Arabic clitic variants for exact routing guards."""
     variants = {token}
     if token.startswith("و"):
         stem = token[1:]
@@ -64,7 +55,7 @@ def _phrase_tokens(text: str) -> list[str]:
 
 
 def _has(text: str, *phrases: str) -> bool:
-    """Token/phrase-aware Arabic matching; never raw substring matching."""
+    """Token/phrase-aware exact Arabic matching; never raw substring matching."""
     words = _tokens(text)
     variants = [_token_variants(word) for word in words]
     normalized = " ".join(words)
@@ -83,7 +74,6 @@ def _has(text: str, *phrases: str) -> bool:
             ):
                 return True
         p = " ".join(pwords)
-        # English/mixed phrases can safely use word-bounded normalized text here.
         if all(ord(ch) < 128 for ch in p) and f" {p} " in f" {normalized} ":
             return True
     return False
@@ -91,23 +81,31 @@ def _has(text: str, *phrases: str) -> bool:
 
 def _traffic_context(text: str) -> bool:
     """Require actual driving/road conduct; Arabic حادث alone also means 'incident'."""
-    return _has(
-        text,
+    terms = (
         "اشارة حمراء", "إشارة حمراء", "حادث سير", "حادث مروري", "مخالفة سير",
         "صدمت", "دهست", "تصادم", "سائق", "قيادة", "بسوق", "يقود", "مسرع",
         "سرعة زائدة", "رادار", "red light", "road accident", "traffic accident",
-        "speeding", "driver",
+        "speeding", "driver", "driving",
     )
+    return _has(text, *terms) or contains_fuzzy(text, *terms)
 
 
 def _property_crime_context(text: str) -> bool:
-    theft_word = _has(text, "سرقة", "سرقت", "سرق", "theft", "stole")
-    taking = _has(text, "أخذ", "اخذ", "أخذت", "اخذت", "استولى", "took")
-    intrusion = _has(
-        text,
+    """Recognize a property-crime fact pattern despite ordinary Arabic/English typos.
+
+    This only chooses the retrieval domain. It never determines the offence, article or
+    penalty; those still require cognition plus grounded official legal text.
+    """
+    theft_terms = ("سرقة", "سرقت", "سرق", "theft", "stole", "stolen")
+    taking_terms = ("أخذ", "اخذ", "اخد", "أخذت", "اخذت", "استولى", "took", "stole")
+    intrusion_terms = (
         "كسر", "كسر قفل", "كسر الباب", "خلع", "دخل البيت", "دخل المنزل",
         "الدخول إلى منزل", "الدخول الى منزل", "تسلل", "اقتحم", "forced entry",
+        "broke into", "broke the lock", "broke the door", "entered the house", "entered the home",
     )
+    theft_word = _has(text, *theft_terms) or contains_fuzzy(text, *theft_terms)
+    taking = _has(text, *taking_terms) or contains_fuzzy(text, *taking_terms)
+    intrusion = _has(text, *intrusion_terms) or contains_fuzzy(text, *intrusion_terms)
     return theft_word or (taking and intrusion)
 
 
@@ -162,7 +160,7 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
         "threat", "blackmail", "extortion",
     )
     violence = _has(text, "قتل", "قتله", "اعتداء", "ضرب", "ضربني", "طعن", "هاجمني", "سلاح", "سرقة", "سرقت", "سرق", "murder", "assault", "theft")
-    taking = _has(text, "أخذ", "اخذ", "أخذت", "اخذت", "سرق", "سرقت", "استولى", "took", "stole")
+    taking = _has(text, "أخذ", "اخذ", "اخد", "أخذت", "اخذت", "سرق", "سرقت", "استولى", "took", "stole")
     forced_entry = _has(text, "كسر", "كسر قفل", "خلع", "دخل البيت", "دخل المنزل", "تسلل", "اقتحم", "forced entry")
     self_defense = _has(text, "دفاع عن نفسي", "دفاعا عن نفسي", "هاجمني", "self defense", "self-defense")
     injury = _has(text, "اصابة", "إصابة", "انصاب", "اصيب", "أصيب", "جرح", "المستشفى", "injury", "injured", "hospital")
@@ -178,15 +176,9 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
     elif complaint:
         _set_primary(route, "procedure", ["criminal"], 0.94)
     elif property_crime:
-        # "وقوع الحادث" commonly means "the incident occurred" in police narratives.
-        # A theft/forced-entry fact pattern must not become traffic law merely because
-        # the narrative later refers to the घटना as حادث.
         _set_primary(route, "criminal", [], 0.94)
     elif traffic:
         extras = []
-        # In a fatal traffic scenario, the criminal dimension is material before
-        # the secondary civil-compensation dimension. Injury-only traffic cases
-        # remain traffic + civil.
         if death:
             extras.append("criminal")
         if injury or death:
@@ -220,21 +212,28 @@ def apply_case_route(route: RouteResult, case, force_domain: str | None = None) 
 
     existing = [d for d in route.domains if d not in {"general", "conversation"}]
 
-    # LLM cognition may see the Arabic word حادث and infer a road accident even when it
-    # merely means "the incident". Preserve an explicit property-crime guard across the
-    # cognition fusion layer as well, so traffic cannot be reintroduced after lexical routing.
     semantic_text = route.normalized_text or ""
-    if _property_crime_context(semantic_text) and not _traffic_context(semantic_text):
+    property_case = _property_crime_context(semantic_text)
+    if property_case and not _traffic_context(semantic_text):
         case_domains = [d for d in case_domains if d != "traffic"]
         strong_domains = [d for d in strong_domains if d != "traffic"]
         existing = [d for d in existing if d != "traffic"]
         if route.primary_domain == "traffic":
             route.primary_domain = "criminal"
 
+    # A pair of grounded material events (taking + entry/breaking) is enough to correct
+    # an unrelated lexical domain, even though the legal theft hypotheses intentionally
+    # remain below 0.75 until ownership/consent/intent facts are confirmed. This is a
+    # routing correction, not a finding that theft is legally established.
+    event_types = {getattr(event, "event_type", "") for event in getattr(case, "events", [])}
+    material_property_events = "taking" in event_types and bool({"entry", "breaking"} & event_types)
+    if material_property_events and "criminal" in case_domains and route.primary_domain not in {"procedure", "traffic", "cyber", "criminal"}:
+        route.primary_domain = "criminal"
+        existing = [d for d in existing if d != "personal_status"]
+
     if route.primary_domain in {"general", "conversation"} and case_domains:
         route.primary_domain = case_domains[0]
     elif strong_domains and route.primary_domain not in strong_domains and route.primary_domain not in {"procedure", "traffic", "cyber"}:
-        # Example: "الشركة قالت سبب الفصل" must be labor, not commercial merely because it says شركة.
         route.primary_domain = strong_domains[0]
 
     route.domains = list(dict.fromkeys(([route.primary_domain] if route.primary_domain not in {"general", "conversation"} else []) + existing + case_domains))[:4]
