@@ -29,11 +29,10 @@ from app.legal_update_guard import _ARTICLE_STRUCTURE_RE, _GARBLED_MARKERS
 from app.sync_engine import pdf_text as pypdf_extract
 from app.sync_engine import safe_url, split_articles
 
-TARGET_URL = os.environ.get(
-    "BENCHMARK_PDF_URL",
+TARGET_URL = os.environ.get("BENCHMARK_PDF_URL") or (
     "https://www.moj.gov.jo/ebv4.0/root_storage/ar/eb_list_page/"
     "%D8%A7%D9%84%D9%82%D8%A7%D9%86%D9%88%D9%86_%D8%A7%D9%84%D9%85%D8%AF%D9%86%D9%8A_"
-    "%D8%B1%D9%82%D9%85_43_%D9%84%D8%B3%D9%86%D8%A9_1976.pdf",
+    "%D8%B1%D9%82%D9%85_43_%D9%84%D8%B3%D9%86%D8%A9_1976.pdf"
 )
 
 
