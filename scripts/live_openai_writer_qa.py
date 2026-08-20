@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 import time
 
 import httpx
+
+ROOT=Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0,str(ROOT))
 
 from scripts.live_production_qa import BASE_URL, cleanup, post_chat, supabase_client
 
@@ -37,19 +42,20 @@ def main() -> int:
             fail(f"arbitrary-dismissal overview routed incorrectly: {route}")
         mode=str(response.get('mode') or '')
         if not mode.startswith('official-openai-grounded-writer'):
-            fail(f"OpenAI writer was not selected; mode={mode}; answer={(response.get('answer') or '')[:900]}")
+            fail(f"OpenAI writer was not selected; mode={mode}; answer={(response.get('answer') or '')[:1200]}")
         answer=response.get('answer') or ''
         if '[S' not in answer:
-            fail(f"OpenAI writer answer lost official citations: {answer[:900]}")
-        if len(answer)<450:
-            fail(f"OpenAI writer answer is too thin for a legal overview: {answer[:900]}")
+            fail(f"OpenAI writer answer lost official citations: {answer[:1200]}")
+        if len(answer)<650:
+            fail(f"OpenAI writer answer is too thin for a legal overview: {answer[:1200]}")
         structure_markers=(
             'المبدأ','الحالات','الحالة','متى','الحقوق','النتائج','الإجراءات','الإجراء',
             'الإثبات','الأدلة','ملاحظة','الأساس القانوني','التعويض','الفصل التعسفي',
+            'العقد','السبب','الإشعار','المصدر','التحقق',
         )
         hits=sum(1 for marker in structure_markers if marker in answer)
-        if hits<3:
-            fail(f"OpenAI writer answer is not sufficiently structured; hits={hits}: {answer[:1200]}")
+        if hits<5:
+            fail(f"OpenAI writer answer is not sufficiently structured; hits={hits}: {answer[:1500]}")
         sources=response.get('sources') or []
         if not sources:
             fail('OpenAI writer returned no official sources')
@@ -58,6 +64,8 @@ def main() -> int:
         if elapsed>30.0:
             fail(f"OpenAI overview latency exceeded interactive budget: {elapsed:.1f}s")
         print(f"[PASS] grounded labor overview -> mode={mode}, sources={len(sources)}, structure_hits={hits}, latency={elapsed:.1f}s")
+        print('--- ANSWER SAMPLE ---')
+        print(answer[:1800])
 
         print('\nLIVE OPENAI WRITER QA: PASS')
         return 0
