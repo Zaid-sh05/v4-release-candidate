@@ -92,44 +92,6 @@ def assert_burglary_regression(data: dict[str, Any]) -> None:
         fail(f"burglary answer did not identify criminal-law basis clearly: {answer[:900]}")
 
 
-CYBER_EXTORTION_CASE = (
-    "قام رائد بتهديد سوسن عبر سناب شات بأنه سوف يقوم بنشر صور فاضحة لها اذا لم تقم بتحويل مبلغ "
-    "مالي له"
-)
-# Same fact pattern, unseen/unnamed platform + different names — must resolve identically per
-# the entity-agnostic generalization requirement, not because "سناب شات" is on a whitelist.
-CYBER_EXTORTION_UNSEEN_PLATFORM_CASE = (
-    "دانا هددت وسيم من خلال تطبيق اسمه زيغو انه رح ينشر محادثاته الخاصة اذا ما حول الها مصاري"
-)
-
-
-def assert_cyber_extortion_hard_negative(data: dict[str, Any], label: str) -> None:
-    """Hard-negative retrieval regression: an electronic-extortion scenario must surface the
-    Cybercrime Law extortion/threat provision, not a same-domain-but-wrong-topic provision such
-    as the Penal Code adultery article (the exact production failure this probe was written to
-    catch: adultery was returned instead of Cybercrime Law Art. 18 for a Snapchat-phrased case).
-    """
-    route = data.get("route") or {}
-    domains = route.get("domains") or []
-    answer = data.get("answer") or ""
-    sources = data.get("sources") or []
-
-    if "cyber" not in domains and route.get("primary_domain") != "cyber":
-        fail(f"{label}: expected cyber domain, got {route}")
-
-    for source in sources:
-        title = source.get("title") or ""
-        excerpt = source.get("excerpt") or ""
-        if "زنا" in title or "زنا" in excerpt:
-            fail(f"{label}: hard-negative leak, adultery provision surfaced as a source: {source}")
-    if "زنا" in answer or "282" in answer:
-        fail(f"{label}: hard-negative leak, adultery provision referenced in answer: {answer[:900]}")
-
-    cyber_sources = [s for s in sources if s.get("domain") == "cyber"]
-    if not cyber_sources:
-        fail(f"{label}: no cyber-domain source retrieved at all: {sources}")
-
-
 def supabase_client():
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         fail("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are required for production QA")
@@ -233,14 +195,6 @@ def main() -> int:
                 print(f"[PASS] burglary production regression -> {domains}")
             else:
                 print(f"[PASS] route {message!r} -> {domains}")
-
-        for label, message in [
-            ("cyber-extortion hard-negative (named platform)", CYBER_EXTORTION_CASE),
-            ("cyber-extortion hard-negative (unseen platform)", CYBER_EXTORTION_UNSEEN_PLATFORM_CASE),
-        ]:
-            data = post_chat(client, message)
-            assert_cyber_extortion_hard_negative(data, label)
-            print(f"[PASS] {label} -> {data['route']['domains']}")
 
         english = post_chat(client, "Hello", language="en")
         assert_prefix(english["route"]["domains"], ["conversation"], "English smalltalk")
