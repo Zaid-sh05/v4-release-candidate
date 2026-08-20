@@ -35,3 +35,6 @@ jobs:
 
       - name: Run live lawyer torture suite
         run: python scripts/live_lawyer_torture.py
+
+      - name: Run live OpenAI grounded-writer QA
+        run: python scripts/live_openai_writer_qa.py
