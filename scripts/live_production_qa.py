@@ -102,6 +102,14 @@ def assert_burglary_regression(data: dict[str, Any]) -> None:
         fail(f"burglary answer did not identify criminal-law basis clearly: {answer[:900]}")
 
 
+def _assert_order(answer: str, markers: tuple[str, ...], label: str) -> None:
+    positions = [answer.find(marker) for marker in markers]
+    if any(position < 0 for position in positions):
+        fail(f"{label}: chronology markers missing {list(zip(markers, positions))}; answer={answer[:1800]}")
+    if positions != sorted(positions):
+        fail(f"{label}: chronology does not follow the user's narrative {list(zip(markers, positions))}")
+
+
 def assert_case_analysis(data: dict[str, Any], *, language: str, label: str) -> None:
     route = data.get("route") or {}
     domains = route.get("domains") or []
@@ -128,23 +136,50 @@ def assert_case_analysis(data: dict[str, Any], *, language: str, label: str) -> 
         required = (
             "التحليل الأولي للحالة",
             "المسائل القانونية التي يجب فحصها",
-            "الوقائع المؤثرة قانونياً",
+            "الوقائع المؤثرة قانونياً والتسلسل الزمني",
             "الأدلة/القرائن المذكورة",
+            "الوقائع الجوهرية التي ما زال يلزم حسمها",
+            "محاور البحث القانوني التالية",
             "الأساس القانوني الرسمي المسترجع",
-            "لن أحدد رقم مادة أو عقوبة",
+            "حدود الاستناد",
+        )
+        forbidden = (
+            "اللابتوب — شخص",
+            "دفع أو تحويل مالي",
+        )
+        chronology = (
+            "دخول إلى منزل أو مكان",
+            "كسر/خلع أو استعمال وسيلة دخول بالقوة",
+            "أخذ أو استيلاء على مال/منقول",
         )
     else:
         required = (
             "Preliminary case analysis",
             "Issues that should be tested",
-            "Legally important facts",
+            "Legally important facts and chronology",
             "Evidence/indicators mentioned",
+            "Material facts still to resolve",
+            "Next legal research focus",
             "Retrieved official legal basis",
-            "I will not assign an article number or penalty",
+            "Grounding boundary",
         )
+        forbidden = (
+            "laptop — person mentioned in the facts",
+            "payment or money transfer",
+        )
+        chronology = (
+            "entry into a home or premises",
+            "breaking/forcing a means of entry",
+            "taking or appropriating money/property",
+        )
+
     missing = [item for item in required if item not in answer]
     if missing:
-        fail(f"{label}: missing structured Case Analysis sections {missing}; answer={answer[:1400]}")
+        fail(f"{label}: missing lawyer-grade Case Analysis sections {missing}; answer={answer[:1800]}")
+    leaked = [item for item in forbidden if item.lower() in answer.lower()]
+    if leaked:
+        fail(f"{label}: scenario-fidelity regression leaked into lawyer analysis {leaked}; answer={answer[:1800]}")
+    _assert_order(answer.lower(), tuple(item.lower() for item in chronology), label)
     if "[S" not in answer:
         fail(f"{label}: grounded case analysis has no source citation: {answer[:900]}")
 
@@ -255,11 +290,11 @@ def main() -> int:
 
         noisy_ar = post_chat(client, NOISY_AR_CASE, language="ar")
         assert_case_analysis(noisy_ar, language="ar", label="Arabic noisy case")
-        print(f"[PASS] Arabic noisy Case Analysis -> {noisy_ar['route']['domains']} / {noisy_ar.get('mode')}")
+        print(f"[PASS] Arabic noisy lawyer Case Analysis -> {noisy_ar['route']['domains']} / {noisy_ar.get('mode')}")
 
         noisy_en = post_chat(client, NOISY_EN_CASE, language="en")
         assert_case_analysis(noisy_en, language="en", label="English noisy case")
-        print(f"[PASS] English noisy Case Analysis -> {noisy_en['route']['domains']} / {noisy_en.get('mode')}")
+        print(f"[PASS] English noisy lawyer Case Analysis -> {noisy_en['route']['domains']} / {noisy_en.get('mode')}")
 
         english = post_chat(client, "Hello", language="en")
         assert_prefix(english["route"]["domains"], ["conversation"], "English smalltalk")
