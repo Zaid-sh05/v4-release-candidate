@@ -43,6 +43,27 @@ def test_validator_accepts_supported_article_and_citation():
     assert ok, reasons
 
 
+def test_validator_accepts_numbered_list_enumerator_but_still_checks_claim_numbers():
+    ok,reasons=llm.validate_generated_answer(
+        '1. إذا ثبت الفصل التعسفي فقد يترتب التعويض وفق المادة 25. [S1]',
+        [_source()],
+        'ar',
+    )
+    assert ok, reasons
+    assert llm._claim_numbers('1. إذا ثبت الفصل التعسفي فقد يترتب التعويض وفق المادة 25. [S1]')==['25']
+
+
+def test_validator_rejects_numbered_list_with_unsupported_article():
+    ok,reasons=llm.validate_generated_answer(
+        '2. تنص المادة 999 على تعويض غير مثبت. [S1]',
+        [_source()],
+        'ar',
+    )
+    assert not ok
+    assert 'unsupported_legal_number:999' in reasons
+    assert 'unsupported_legal_number:2' not in reasons
+
+
 def test_validator_rejects_nonexistent_source_number():
     ok,reasons=llm.validate_generated_answer('تنص المادة 25 على ذلك. [S2]',[_source()],'ar')
     assert not ok
@@ -136,7 +157,7 @@ def test_generate_answer_falls_back_when_model_invents_article(monkeypatch):
     assert result is None
 
 
-def test_v4_writer_policy_skips_short_direct_questions_and_keeps_high_value_synthesis():
+def test_v4_writer_policy_uses_openai_for_synthesis_not_every_long_case():
     from app import chat_v4
 
     direct=_route('procedure')
@@ -149,7 +170,7 @@ def test_v4_writer_policy_skips_short_direct_questions_and_keeps_high_value_synt
         'قام صاحب العمل بإنهاء خدمة العامل بعد خلاف طويل، وذكر سبباً مختلفاً في كتاب الفصل '
         'عن السبب الذي أرسله في الرسائل، ويوجد شهود ورسائل ويريد العامل معرفة وضعه القانوني.'
     )
-    assert chat_v4._should_use_openai_writer(long_case,overview,SimpleNamespace()) is True
+    assert chat_v4._should_use_openai_writer(long_case,overview,SimpleNamespace()) is False
 
 
 def test_v4_short_query_skips_embedding_round_trip(monkeypatch):
@@ -163,3 +184,14 @@ def test_v4_short_query_skips_embedding_round_trip(monkeypatch):
     long_text=' '.join(['تفاصيل']*40)
     assert chat_v4._v4_embed_query(long_text)==[0.1]
     assert called==[long_text]
+
+
+def test_research_composer_policy_covers_professional_legal_sections_without_forcing_them():
+    ar=llm.SYSTEM_AR
+    en=llm.SYSTEM_EN
+    for phrase in ('الحالات أو الصور الرئيسية','الحقوق والآثار','مهلة أو موعد إجرائي','الأدلة المهمة','مثال افتراضي','النص النافذ بتاريخ الواقعة'):
+        assert phrase in ar
+    for phrase in ('main situations','rights, remedies','urgent procedural deadline','important evidence','hypothetical example','applicable version'):
+        assert phrase in en
+    assert 'لا تفرض أقساماً غير مفيدة' in ar
+    assert 'do not mechanically include irrelevant sections' in en.lower()
