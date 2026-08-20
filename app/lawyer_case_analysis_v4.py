@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-# Extend the stable lawyer-analysis presenter without duplicating it. These mappings only change
-# how already-grounded cognition is explained to the user; they do not create legal conclusions.
+# Extend the stable lawyer-analysis presenter without duplicating its source-grounded path. These
+# mappings only change how already-grounded cognition is explained; they do not create legal rules.
 from . import lawyer_case_analysis as base
 
 
@@ -61,8 +61,6 @@ base._RESEARCH_EN.update({
     "criminal.statement_linked_money_demand": "establish the exact money demand, its condition and any message/recording/witness before matching any criminal provision",
 })
 
-# The base module imports this dictionary from case_analysis, so updating it here also improves the
-# material-facts section for English output.
 base._MISSING_EN.update({
     "هوية من كان يقود المركبة وقت الواقعة": "who was actually driving the vehicle at the relevant time",
     "من كان يقود المركبة فعلياً؟": "who was actually driving the vehicle",
@@ -92,8 +90,116 @@ base._MISSING_EN.update({
 })
 
 
+def _fact_only_analysis(message, route, case):
+    """Render grounded narrative analysis even when retrieval has no matching legal text.
+
+    Facts, chronology, allegations, evidence inventory and research questions come from the user's
+    own narrative/cognition graph. No article, offence, penalty, deadline or legal outcome is stated.
+    This prevents source scarcity from collapsing a useful lawyer-oriented analysis into a one-line
+    refusal while preserving the legal-grounding boundary.
+    """
+    if case is None or route.intent != "legal_question" or not getattr(case, "hypotheses", None):
+        return None
+    if getattr(case, "decision", None) and case.decision.action == "clarify" and len(getattr(case, "events", [])) <= 1:
+        return None
+
+    english = base._english_output(route, message)
+    domain = (base._DOMAIN_EN if english else base._DOMAIN_AR).get(route.primary_domain, route.primary_domain)
+    actors = base._actor_lines(case, english)
+    chronology = base._chronology(case, english)
+    reported = base._reported_fact_lines(case, english, disputed=False)
+    disputed = base._reported_fact_lines(case, english, disputed=True)
+    issues = base._issue_matrix_lines(case, english)
+    evidence = base._evidence_signals(message, case)
+    gaps = base._material_gaps(case, english)
+    research = base._research_focus(case, english)
+    posture = (base._POSTURE_EN if english else base._POSTURE_AR).get(getattr(case, "procedural_posture", "pre_case"))
+
+    if english:
+        parts = [
+            f"Preliminary case analysis: the main legal track is **{domain}**. "
+            "This is structured issue-spotting from the reported narrative; it is not a finding of guilt, liability, evidence authenticity/admissibility, or a final legal classification."
+        ]
+        if posture:
+            parts.append(f"Procedural posture: {posture}.")
+        if actors:
+            parts.append("Parties/actors identified from the narrative:\n" + "\n".join(f"- {item}" for item in actors))
+        if chronology:
+            parts.append("Legally important facts and chronology:\n" + "\n".join(f"- {item}" for item in chronology))
+        elif reported:
+            parts.append("Legally important reported facts:\n" + "\n".join(f"- {item}" for item in reported))
+        if issues:
+            parts.append("Issues that should be tested:\n" + "\n".join(f"- {item}" for item in issues))
+        if disputed:
+            parts.append(
+                "Expressly disputed/alleged facts:\n"
+                + "\n".join(f"- {item}" for item in disputed)
+                + "\nThese remain disputed and are not converted into proven facts by the assistant."
+            )
+        if evidence:
+            parts.append(
+                "Evidence/indicators mentioned:\n"
+                + "\n".join(f"- {item.en}" for item in evidence)
+                + "\nThis is an evidence inventory only; authenticity, admissibility and weight are not assumed."
+            )
+        if gaps:
+            parts.append("Material facts still to resolve:\n" + "\n".join(f"- {item}" for item in gaps))
+        if research:
+            parts.append("Next legal research focus:\n" + "\n".join(f"- {item}" for item in research))
+        parts.append(
+            "Retrieved official legal basis: no sufficiently specific readable official provision was retrieved for this multi-issue fact pattern, so I will not attach an article number or penalty to it yet."
+        )
+        parts.append(
+            "Grounding boundary: the factual organization and issue list above come from the reported narrative. Any article number, offence, penalty, deadline or final outcome must be supported by official legal text that fits the facts actually established and the correct procedural posture."
+        )
+        return base.GroundedAnswer("\n\n".join(parts), "partial")
+
+    parts = [
+        f"التحليل الأولي للحالة: المسار القانوني الرئيسي هو **{domain}**. "
+        "هذا تحليل منظم للوقائع والمسائل المحتملة كما وردت في الرواية، وليس حكماً بالإدانة أو المسؤولية، ولا يفترض صحة الدليل أو قبوله أو وزنه، ولا يشكل تكييفاً نهائياً."
+    ]
+    if posture:
+        parts.append(f"الوضع الإجرائي الظاهر من المعطيات: {posture}.")
+    if actors:
+        parts.append("الأطراف/الأشخاص المستخرجون من الرواية:\n" + "\n".join(f"- {item}" for item in actors))
+    if chronology:
+        parts.append("الوقائع المؤثرة قانونياً والتسلسل الزمني:\n" + "\n".join(f"- {item}" for item in chronology))
+    elif reported:
+        parts.append("الوقائع المؤثرة قانونياً في الرواية:\n" + "\n".join(f"- {item}" for item in reported))
+    if issues:
+        parts.append("المسائل القانونية التي يجب فحصها:\n" + "\n".join(f"- {item}" for item in issues))
+    if disputed:
+        parts.append(
+            "وقائع صريحة متنازع عليها/منسوبة ولم تُثبت بعد:\n"
+            + "\n".join(f"- {item}" for item in disputed)
+            + "\nتبقى هذه الوقائع محل نزاع ولا يحولها النظام إلى حقيقة مثبتة."
+        )
+    if evidence:
+        parts.append(
+            "الأدلة/القرائن المذكورة:\n"
+            + "\n".join(f"- {item.ar}" for item in evidence)
+            + "\nهذا حصر لما ذُكر فقط؛ لا يفترض النظام صحة الدليل أو قبوله أو وزنه الإثباتي."
+        )
+    if gaps:
+        parts.append("الوقائع الجوهرية التي ما زال يلزم حسمها:\n" + "\n".join(f"- {item}" for item in gaps))
+    if research:
+        parts.append("محاور البحث القانوني التالية:\n" + "\n".join(f"- {item}" for item in research))
+    parts.append(
+        "الأساس القانوني الرسمي المسترجع: لم يُسترجع نص رسمي مقروء ومحدد بما يكفي لتغطية هذه الوقائع المركبة، لذلك لن أربطها الآن برقم مادة أو عقوبة غير مثبتة."
+    )
+    parts.append(
+        "حدود الاستناد: تنظيم الوقائع والمسائل أعلاه مبني على الرواية التي ذكرتها فقط. أما رقم المادة أو الجريمة النهائية أو العقوبة أو المدة أو النتيجة، فيجب أن تستند إلى نص رسمي مطابق للوقائع التي تثبت فعلاً وللوضع الإجرائي الصحيح."
+    )
+    return base.GroundedAnswer("\n\n".join(parts), "partial")
+
+
 def generate_lawyer_case_analysis_answer(message, route, case, sources):
-    return base.generate_lawyer_case_analysis_answer(message, route, case, sources)
+    # Preserve the established source-grounded presenter whenever at least one suitable official
+    # source exists. Only use fact-only mode when retrieval cannot support a legal-basis section.
+    picked = base._pick_sources(sources or [], route, case) if case is not None else []
+    if picked:
+        return base.generate_lawyer_case_analysis_answer(message, route, case, sources)
+    return _fact_only_analysis(message, route, case)
 
 
 __all__ = ["generate_lawyer_case_analysis_answer"]
