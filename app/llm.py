@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -8,6 +9,8 @@ from .config import settings
 from .models import RouteResult, SourceItem
 from .router import DOMAIN_LABELS
 from .text import normalize_ar, strip_emoji_style
+
+logger=logging.getLogger(__name__)
 
 SYSTEM_AR = '''أنت قانوني | Qanoni، مساعد بحث وتحليل قانوني متخصص في القانون الأردني.
 مهمتك ليست نسخ النص المسترجع، بل تحويل سؤال المستخدم أو وقائع القضية والمصادر الرسمية إلى جواب مهني، منظم، عملي، وسهل الفهم يشبه عمل باحث قانوني أو مستشار قانوني حذر.
@@ -150,6 +153,16 @@ def _source_blob(sources: list[SourceItem]) -> str:
     )).lower()
 
 
+def _claim_numbers(paragraph: str) -> list[str]:
+    """Return substantive numbers while ignoring Markdown/list/source-reference numbering."""
+    low=_ascii_digits(paragraph or '').lower()
+    # Remove source references first so S1/S2 never become legal-number candidates.
+    low=re.sub(r'\[s\d+\]',' ',low,flags=re.I)
+    # Ignore a structural enumerator only at the beginning of the paragraph/bullet.
+    low=re.sub(r'^\s*(?:[-*]\s*)?\d{1,2}\s*[.)\-:]\s*','',low)
+    return re.findall(r'(?<!\w)\d{1,6}(?:\.\d+)?(?!\w)',low)
+
+
 def validate_generated_answer(answer: str, sources: list[SourceItem], language: str='ar') -> tuple[bool,list[str]]:
     text=(answer or '').strip()
     if not text:
@@ -172,10 +185,7 @@ def validate_generated_answer(answer: str, sources: list[SourceItem], language: 
             continue
         if sources and not re.search(r'\[S\d+\]',paragraph):
             reasons.append('uncited_hard_legal_claim')
-        nums=re.findall(r'(?<!\w)\d{1,6}(?:\.\d+)?(?!\w)',low)
-        for num in nums:
-            if re.search(rf'\[S{re.escape(num)}\]',paragraph):
-                continue
+        for num in _claim_numbers(paragraph):
             if num not in blob:
                 reasons.append(f'unsupported_legal_number:{num}')
                 break
@@ -219,9 +229,13 @@ def generate_answer(
             max_output_tokens=1600,
         )
         text=strip_emoji_style((response.output_text or '').strip())
-        ok,_=validate_generated_answer(text,sources,route.language)
-        return text if text and ok else None
-    except Exception:
+        ok,reasons=validate_generated_answer(text,sources,route.language)
+        if not ok:
+            logger.warning('OpenAI grounded writer rejected: %s',','.join(reasons[:6]))
+            return None
+        return text if text else None
+    except Exception as exc:
+        logger.warning('OpenAI grounded writer failed: %s',type(exc).__name__)
         return None
 
 
