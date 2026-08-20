@@ -7,7 +7,7 @@ from .decision_gate import decide_next_action
 from .engine import CaseCognitionEngine as BaseCaseCognitionEngine
 from .issue_spotter import spot_issues
 from .language_match import contains_fuzzy, normalize_flexible
-from .models import MaterialDecision, SemanticSignal
+from .models import Event, MaterialDecision, SemanticSignal
 from .retrieval_planner import build_retrieval_queries
 
 
@@ -33,12 +33,7 @@ def _add_signal(case, code: str, support_span: str, confidence: str = "high") ->
 
 
 def _seed_deterministic_signals(case) -> None:
-    """Add high-value semantic cues that must not depend on optional LLM availability.
-
-    These are language-understanding signals only. They are never legal conclusions and
-    never replace grounded legal retrieval. Matching is bilingual and typo-tolerant, but
-    deliberately conservative for short words to avoid false legal-domain triggers.
-    """
+    """Add high-value semantic cues that must not depend on optional LLM availability."""
     text = case.raw_message
 
     if _contains(
@@ -66,7 +61,7 @@ def _seed_deterministic_signals(case) -> None:
     if _contains(text, "فصلني", "طردني", "انهاء عقد", "إنهاء عقد", "سبب الفصل", "fired", "dismissed", "terminated", "let me go from my job"):
         _add_signal(case, "employment.termination", "ذكر المستخدم إنهاء علاقة العمل")
 
-    if _contains(text, "سرق", "سرقة", "أخذ", "اخذ", "استولى", "took", "stole", "stolen", "theft"):
+    if _contains(text, "سرق", "سرقة", "أخذ", "اخذ", "اخد", "استولى", "took", "stole", "stolen", "theft"):
         _add_signal(case, "property.taking", "ذكر المستخدم أخذ أو استيلاء على مال")
 
     if _contains(text, "توفي", "توفى", "مات", "وفاة", "قتل", "died", "death", "killed"):
@@ -80,9 +75,9 @@ def _seed_deterministic_signals(case) -> None:
 
 
 _EVENT_CUES: dict[str, tuple[str, ...]] = {
-    "entry": ("دخل", "دخول", "تسلل", "اقتحم", "entered", "entry", "broke in", "broke into"),
-    "breaking": ("كسر", "خلع", "حطم", "broke", "breaking", "forced entry"),
-    "taking": ("أخذ", "اخذ", "سرق", "استولى", "استيلاء", "took", "stole", "stolen", "taking", "theft"),
+    "entry": ("دخل", "دخول", "تسلل", "اقتحم", "entered", "entry", "broke in", "broke into", "entered the house", "entered the home"),
+    "breaking": ("كسر", "خلع", "حطم", "broke", "breaking", "forced entry", "broke the lock", "broke the door"),
+    "taking": ("أخذ", "اخذ", "اخد", "سرق", "استولى", "استيلاء", "took", "stole", "stolen", "taking", "theft"),
     "violence": ("ضرب", "طعن", "اعتدى", "هاجم", "اطلق", "أطلق", "hit", "stabbed", "assaulted", "attacked", "shot"),
     "death": ("توفي", "توفى", "مات", "قتل", "وفاة", "died", "death", "killed"),
     "injury": ("اصيب", "أصيب", "انصاب", "جرح", "اصابة", "إصابة", "injured", "injury", "hurt"),
@@ -93,14 +88,51 @@ _EVENT_CUES: dict[str, tuple[str, ...]] = {
     "communication": ("قال", "قالت", "بحكي", "رسالة", "واتساب", "ابلغ", "أبلغ", "said", "told", "message", "whatsapp"),
 }
 
+_SYNTHESIZED_EVENT_TYPES = (
+    "entry", "breaking", "taking", "violence", "death", "injury", "threat",
+    "termination", "judgment", "payment",
+)
+
+
+def _support_sentence(text: str, cues: tuple[str, ...]) -> str:
+    sentences = [part.strip(" ،.\t") for part in re.split(r"[\n\r.!؟?؛]+", text or "") if part.strip(" ،.\t")]
+    for sentence in sentences:
+        if _contains(sentence, *cues):
+            return sentence
+    return (text or "").strip()[:600]
+
+
+def _seed_deterministic_events(case) -> bool:
+    """Fill material events the legacy Arabic-first parser missed.
+
+    The added event is always anchored to a sentence from the user's own message. Fuzzy
+    matching is only used to recognize the event type, never to add a legal conclusion.
+    """
+    existing = {event.event_type for event in case.events}
+    changed = False
+    for event_type in _SYNTHESIZED_EVENT_TYPES:
+        if event_type in existing:
+            continue
+        cues = _EVENT_CUES[event_type]
+        if not _contains(case.raw_message, *cues):
+            continue
+        span = _support_sentence(case.raw_message, cues)
+        case.events.append(
+            Event(
+                order=len(case.events) + 1,
+                text=span,
+                event_type=event_type,
+                source="deterministic",
+                support_span=span,
+            )
+        )
+        existing.add(event_type)
+        changed = True
+    return changed
+
 
 def _prune_semantically_invalid_llm_events(case) -> bool:
-    """Reject LLM-only event labels that are grounded textually but semantically mismatched.
-
-    Grounding alone is not enough: a model can quote "نقلوه عالمستشفى" and still label
-    it as a taking event. Hybrid events already corroborated by deterministic parsing are
-    preserved; only unsupported LLM-only labels are removed.
-    """
+    """Reject LLM-only event labels that are grounded textually but semantically mismatched."""
     kept = []
     changed = False
     for event in case.events:
@@ -149,7 +181,6 @@ _RAW_EXPLICIT_GOAL_CUES = (
 
 
 def _is_raw_short_ambiguous(message: str) -> bool:
-    """Classify a short bare factual utterance before optional LLM enrichment."""
     normalized = _norm(message)
     prompt_tokens = re.findall(r"[A-Za-z0-9_\u0600-\u06ff]+", normalized)
     if not prompt_tokens or len(prompt_tokens) > 6:
@@ -179,10 +210,11 @@ class CaseCognitionEngine(BaseCaseCognitionEngine):
         _seed_deterministic_signals(case)
         after_signals = {(signal.code, signal.support_span) for signal in case.semantic_signals}
 
+        events_seeded = _seed_deterministic_events(case)
         events_changed = _prune_semantically_invalid_llm_events(case)
         disputed_changed = _mark_disputed_facts(case)
 
-        if after_signals != before_signals or events_changed or disputed_changed:
+        if after_signals != before_signals or events_seeded or events_changed or disputed_changed:
             case.hypotheses = spot_issues(case)
             case.domains = list(dict.fromkeys(h.domain for h in case.hypotheses)) or ["general"]
             case.clarifying_questions = choose_questions(case)
