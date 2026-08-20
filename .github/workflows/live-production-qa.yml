@@ -3,6 +3,7 @@ name: Qanoni Live Production QA
 on:
   push:
     branches: [qa/live-railway-v4]
+  pull_request:
   workflow_dispatch:
 
 jobs:
