@@ -38,6 +38,12 @@ jobs:
       - name: Verify app import
         run: python -c "import app; import app.cognition; print('Qanoni app import OK')"
 
+      - name: Validate frontend JavaScript
+        run: |
+          node --check static/app.js
+          node --check static/feedback-review.js
+          node --check static/sw.js
+
       - name: Run cognition regression tests
         run: |
           python -m pytest -q \
@@ -65,8 +71,8 @@ jobs:
       - name: Run grounded feedback correction tests
         run: python -m pytest -q tests/test_feedback_self_correction.py
 
-      - name: Run observability tests
-        run: python -m pytest -q tests/test_observability.py
+      - name: Run observability and cloud read-path tests
+        run: python -m pytest -q tests/test_observability.py tests/test_cloud_read_paths.py
 
       - name: Run API smoke test
         run: python -m pytest -q tests/test_api_smoke.py
