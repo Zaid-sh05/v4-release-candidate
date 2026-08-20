@@ -88,6 +88,40 @@ def test_real_english_smalltalk_remains_conversation():
         assert route.primary_domain == "conversation", message
 
 
+def test_scenario_fidelity_does_not_treat_stolen_laptop_as_person_or_cash_as_payment():
+    message = (
+        "دخل احمد منزل خالد وكسسر قفل الباب واخذ اللابتوب و500 دينار. "
+        "بعدها عثرت الشرطة على اللابتوب عنده وكاميرا مراقبة صورته قرب المنزل."
+    )
+    case = CaseCognitionEngine(enable_llm=False).analyze(message, "ar")
+
+    actor_labels = {actor.label for actor in case.actors}
+    event_types = [event.event_type for event in case.events]
+
+    assert "احمد" in actor_labels
+    assert "خالد" in actor_labels
+    assert "اللابتوب" not in actor_labels
+    assert "payment" not in event_types
+    assert "500 دينار" in case.amounts
+
+
+def test_scenario_fidelity_preserves_real_payment_event():
+    message = "دفعت 500 دينار عربون للشقة وحولت المبلغ للبائع"
+    case = CaseCognitionEngine(enable_llm=False).analyze(message, "ar")
+
+    assert "500 دينار" in case.amounts
+    assert any(event.event_type == "payment" for event in case.events)
+
+
+def test_typo_burglary_chronology_follows_user_narrative_entry_breaking_taking():
+    message = "دخل احمد المنزل وكسسر القفل وبعدها اخذ اللابتوب و500 دينار"
+    case = CaseCognitionEngine(enable_llm=False).analyze(message, "ar")
+
+    event_types = [event.event_type for event in case.events]
+    assert event_types.index("entry") < event_types.index("breaking") < event_types.index("taking")
+    assert "payment" not in event_types
+
+
 def test_arabic_case_analysis_is_structured_and_does_not_overclaim_article_407():
     message = (
         "دخل أحمد منزل خالد وكسر القفل وأخذ اللابتوب و500 دينار. "
