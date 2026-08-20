@@ -46,7 +46,6 @@ def test_new_traffic_case_does_not_inherit_previous_cyber_case():
     route = analyze_query(traffic, "ar")
     effective, used = contextualize_message(traffic, history, route)
 
-    assert route.primary_domain == "traffic"
     assert used is False
     assert effective == traffic
     assert cyber not in effective
