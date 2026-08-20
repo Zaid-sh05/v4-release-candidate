@@ -126,6 +126,26 @@ def test_unanchored_trigger_word_does_not_match_inside_a_longer_word():
     assert "مصاري" not in labels
 
 
+def test_negated_evidence_mentions_are_not_extracted_as_found_evidence():
+    # Handoff-forbidden hallucination: "لم يتم ضبط أداة" (no tool was seized) must never be
+    # read as evidence of a seizure. The extractor only matched evidence keywords by plain
+    # substring, ignoring a preceding negation particle (لم/لا/ما/دون/بدون/غير/لن/بلا).
+    case = CaseCognitionEngine(enable_llm=False).analyze(
+        "لم تعثر الشرطة على أي شيء ولم يتم ضبط أي أداة"
+    )
+    assert case.evidence == []
+
+
+def test_positive_evidence_mention_still_extracted_alongside_a_negated_one():
+    # Guards against over-correcting the fix above: a real, unnegated evidence mention in the
+    # same message must still be captured even when another mention nearby is negated.
+    case = CaseCognitionEngine(enable_llm=False).analyze(
+        "لم تعثر الشرطة على شيء لكنها عثرت على كاميرا مراقبة قريبة"
+    )
+    kinds = {e.kind for e in case.evidence}
+    assert "camera" in kinds
+
+
 def test_llm_enrichment_cannot_create_unsupported_named_actor_or_event():
     message = "أحمد أخذ الحاسوب من المكتب"
     enrichment = CognitionEnrichment(

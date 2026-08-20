@@ -86,11 +86,36 @@ def _procedural_posture(text: str) -> str:
     return "pre_case"
 
 
+_EVIDENCE_NEGATION_MARKERS = ("لم", "لا", "ما", "دون", "بدون", "غير", "لن", "لن يتم", "بلا")
+
+
+def _term_is_negated(low_text: str, term_low: str) -> bool:
+    """A matched evidence term counts as an actual mention only if it is not itself negated.
+
+    "لم تعثر الشرطة على أي شيء" (police did NOT find anything) contains the substring "عثر"
+    (found) but must never be reported as evidence that something WAS found. Every occurrence
+    of the term is checked; if any occurrence is not preceded by a nearby negation marker, the
+    term is treated as genuinely mentioned.
+    """
+    start = 0
+    while True:
+        idx = low_text.find(term_low, start)
+        if idx == -1:
+            return True
+        window = low_text[max(0, idx - 15):idx]
+        # Strip a leading "و" (and) clitic before comparing ("ولم" -> "لم"); Arabic freely
+        # attaches conjunctions to the very word being checked.
+        window_words = [w[1:] if w.startswith("و") and len(w) > 1 else w for w in window.split()]
+        if not any(marker in window_words for marker in _EVIDENCE_NEGATION_MARKERS):
+            return False
+        start = idx + len(term_low)
+
+
 def _extract_evidence(text: str) -> list[EvidenceItem]:
     low = text.lower()
     out: list[EvidenceItem] = []
     for kind, terms in EVIDENCE_TERMS.items():
-        matched = [term for term in terms if term.lower() in low]
+        matched = [term for term in terms if term.lower() in low and not _term_is_negated(low, term.lower())]
         if matched:
             out.append(
                 EvidenceItem(
