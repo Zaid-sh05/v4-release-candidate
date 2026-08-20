@@ -84,5 +84,8 @@ jobs:
       - name: Run observability and cloud read-path tests
         run: python -m pytest -q tests/test_observability.py tests/test_cloud_read_paths.py
 
+      - name: Run OpenAI grounded writer contracts
+        run: python -m pytest -q tests/test_openai_grounded_writer.py
+
       - name: Run API smoke test
         run: python -m pytest -q tests/test_api_smoke.py
