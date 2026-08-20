@@ -163,3 +163,14 @@ def test_v4_short_query_skips_embedding_round_trip(monkeypatch):
     long_text=' '.join(['تفاصيل']*40)
     assert chat_v4._v4_embed_query(long_text)==[0.1]
     assert called==[long_text]
+
+
+def test_research_composer_policy_covers_professional_legal_sections_without_forcing_them():
+    ar=llm.SYSTEM_AR
+    en=llm.SYSTEM_EN
+    for phrase in ('الحالات أو الصور الرئيسية','الحقوق والآثار','مهلة أو موعد إجرائي','الأدلة المهمة','مثال افتراضي','النص النافذ بتاريخ الواقعة'):
+        assert phrase in ar
+    for phrase in ('main situations','rights, remedies','urgent procedural deadline','important evidence','hypothetical example','applicable version'):
+        assert phrase in en
+    assert 'لا تفرض أقساماً غير مفيدة' in ar
+    assert 'do not mechanically include irrelevant sections' in en.lower()
