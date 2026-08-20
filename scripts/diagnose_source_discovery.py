@@ -38,6 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.config import settings
 from app.document_classifier import classify_document
+from app.legal_document_quality import build_quality_report
 from app.legal_update_guard import quality_gate
 from app.repository import repository
 from app.sync_engine import (
@@ -334,6 +335,36 @@ def diagnose_url(url: str) -> None:
         usable = accepted and len(article_pieces) >= 3
         print(f"    production-usable article segmentation: {usable}"
               f"{' (accepted by quality_gate but very few articles detected)' if accepted and not usable else ''}")
+
+        report = build_quality_report(
+            text=text,
+            pieces=pieces,
+            filename=raw_title,
+            extraction_method=pdf_report["selected_extractor"],
+            readability_score=readability,
+        )
+        print("\n  -- Legal Document Quality Report (pre-ingestion, Legal Corpus Normalization) --")
+        print(f"    law title (from body text):     {report.law_title!r}")
+        print(f"    law number (from body text):    {report.law_number!r}")
+        print(f"    year (from body text):           {report.year!r}")
+        print(f"    filename-derived title:          {report.filename_title!r}")
+        print(f"    filename-derived law number/year: {report.filename_law_number!r} / {report.filename_year!r}")
+        if report.metadata_conflicts:
+            print(f"    *** METADATA CONFLICTS (body vs filename): {report.metadata_conflicts} ***")
+        else:
+            print("    metadata conflicts: none")
+        print(f"    article count: {report.article_count} (distinct numbers: {report.distinct_article_numbers})")
+        print(f"    missing article numbers: {report.missing_article_numbers[:30]}"
+              f"{' ...' if len(report.missing_article_numbers) > 30 else ''}")
+        if report.duplicate_articles:
+            for number, finding in sorted(report.duplicate_articles.items(), key=lambda kv: int(kv[0])):
+                print(f"    duplicate '{number}': occurrences={finding.occurrences} "
+                      f"lengths={finding.body_lengths} verdict={finding.verdict}")
+        else:
+            print("    duplicate articles: none")
+        print(f"    genuine duplicates needing review: {report.genuine_duplicate_count}")
+        print(f"    extraction method: {report.extraction_method}")
+        print(f"    CONFIDENCE SCORE: {report.confidence_score}")
 
 
 def main() -> int:
