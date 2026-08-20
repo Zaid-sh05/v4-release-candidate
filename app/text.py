@@ -99,6 +99,9 @@ _EMOTICON_RE = re.compile(r"(?:(?<=\s)|^)(?:[:;=8][\-^']?[)(/DPpOo]|<3)(?=\s|$)"
 def strip_emoji_style(text: str) -> str:
     value = _EMOJI_RE.sub('', text or '')
     value = _EMOTICON_RE.sub('', value)
-    value = re.sub(r'[ \\t]{2,}', ' ', value)
-    value = re.sub(r' *\\n', '\\n', value)
+    # Collapse actual spaces/tabs only. The previous pattern accidentally treated the
+    # literal letter "t" as whitespace, corrupting English words such as "theft",
+    # "taking", "important" and "next" whenever t touched a space.
+    value = re.sub(r'[ \t]{2,}', ' ', value)
+    value = re.sub(r' *\n', '\n', value)
     return value.strip()
