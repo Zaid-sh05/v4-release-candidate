@@ -57,7 +57,10 @@ jobs:
             tests/test_conversation_threading.py
 
       - name: Run lawyer scenario torture suite
-        run: python -m pytest -q tests/test_lawyer_torture_suite.py
+        run: |
+          python -m pytest -q \
+            tests/test_lawyer_torture_suite.py \
+            tests/test_lawyer_fact_only_analysis.py
 
       - name: Run V3 regression tests
         run: |
