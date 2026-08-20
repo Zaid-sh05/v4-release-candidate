@@ -19,6 +19,7 @@ _NON_PERSON_ACTOR_TERMS = {
     "ايضا", "أيضا", "انه", "إنه", "انها", "إنها", "اقواله", "أقواله", "اقوالها", "أقوالها",
     "شهادته", "شهادتها", "لاخبار", "لإخبار", "اخباره", "إخباره", "اخبار", "إخبار",
     "لاحقا", "لاحقاً", "مسرعا", "مسرعاً", "عندما", "بعدها", "قبلها", "المركز",
+    "لوالد", "لوالده", "لوالدها",
     "laptop", "computer", "phone", "mobile", "money", "cash", "amount",
     "lock", "door", "window", "car", "vehicle", "weapon", "knife", "gun",
     "house", "home", "property", "contract", "document", "camera", "cctv", "message",
@@ -75,7 +76,17 @@ def _looks_like_non_person(label: str) -> bool:
         return True
     if any(token in n.split() for token in ("دينار", "دنانير", "jod", "jd")):
         return True
-    return n in {"هو", "هي", "هم", "انا", "اني", "هذا", "هذه", "ذلك", "الذي", "التي"}
+    if n in {"هو", "هي", "هم", "انا", "اني", "هذا", "هذه", "ذلك", "الذي", "التي"}:
+        return True
+    # Attached preposition+pronoun forms ("from him", "with her", "about them"...) are common
+    # right after the same trigger verbs (أخذ منه, اتصل به) and are grammatical objects, never
+    # a person's name.
+    return n in {
+        "منه", "منها", "منهم", "منهما", "معه", "معها", "معهم", "معهما",
+        "له", "لها", "لهم", "لهما", "به", "بها", "بهم", "بهما",
+        "عنه", "عنها", "عنهم", "عنهما", "فيه", "فيها", "عليه", "عليها",
+        "اليه", "إليه", "اليها", "إليها",
+    }
 
 
 def prune_non_person_actors(case) -> bool:

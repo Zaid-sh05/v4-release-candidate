@@ -69,6 +69,16 @@ def test_unknown_actor_is_not_invented_from_ambiguous_burglary_story():
     assert {"entry", "breaking", "taking"}.issubset({e.event_type for e in case.events})
 
 
+def test_attached_preposition_pronouns_are_not_extracted_as_person_actors():
+    # Real gap: the regex-based actor extractor captures whatever word follows a trigger verb
+    # (أخذ, اتصل...), and attached preposition+pronoun objects ("from him", "with her") were not
+    # in the non-person blocklist, so "أخذ منه القفل" invented a fake person actor "منه".
+    case = CaseCognitionEngine(enable_llm=False).analyze("ذهب زيد لوالده وأخذ منه القفل")
+    labels = {a.label for a in case.actors}
+    assert "منه" not in labels
+    assert "لوالده" not in labels
+
+
 def test_llm_enrichment_cannot_create_unsupported_named_actor_or_event():
     message = "أحمد أخذ الحاسوب من المكتب"
     enrichment = CognitionEnrichment(
