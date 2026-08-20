@@ -7,8 +7,9 @@
   <title>قانوني | Qanoni</title>
   <link rel="icon" href="/favicon.ico">
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="/static/styles.css?v=34">
-  <link rel="stylesheet" href="/static/feedback-review.css?v=1">
+  <link rel="stylesheet" href="/static/styles.css?v=40">
+  <link rel="stylesheet" href="/static/pilot-polish.css?v=1">
+  <link rel="stylesheet" href="/static/feedback-review.css?v=2">
 </head>
 <body>
 <div class="app-shell">
@@ -63,7 +64,7 @@
           <div class="hero-copy">
             <span class="eyebrow" data-i18n="pilot">Jordan Legal AI Pilot</span>
             <h1 data-i18n="ask">اسأل قانوني</h1>
-            <p data-i18n="subtitle">احكي سؤالك بطريقتك العادية. قانوني يحدد المجال القانوني، يبحث في المصادر الرسمية، ويعرض لك أساس الإجابة بوضوح.</p>
+            <p data-i18n="subtitle">احكي سؤالك بطريقتك العادية. قانوني يفهم الحالة، يحدد المجال القانوني، يبحث في المصادر الرسمية، ويعرض أساس الإجابة بوضوح.</p>
           </div>
           <label class="route-select">
             <span data-i18n="routing">التوجيه القانوني</span>
@@ -88,7 +89,7 @@
         <div class="route-summary" id="routeSummary" hidden></div>
         <form class="composer" id="chatForm">
           <textarea id="messageInput" rows="1" maxlength="12000" data-i18n-placeholder="placeholder" placeholder="اكتب سؤالك هنا..."></textarea>
-          <button class="send-btn" id="sendBtn" type="submit" aria-label="Send">
+          <button class="send-btn" id="sendBtn" type="submit" aria-label="إرسال">
             <svg viewBox="0 0 24 24"><path d="m5 12 14-7-5 14-2.2-5.8L5 12Zm6.8 1.2L19 5"/></svg>
           </button>
         </form>
@@ -99,7 +100,7 @@
     <section class="view page-view" id="sourcesView">
       <div class="page-scroll">
         <div class="page-head">
-          <div><span class="eyebrow">Official Jordanian Sources</span><h2 data-i18n="sourcesTitle">المصادر والتغطية القانونية</h2><p data-i18n="sourcesDesc">يعرض قانوني حالة القوانين الأساسية ومصادر المزامنة الحكومية. لا يعتبر القانون مكتمل التغطية إلا إذا كان النص القانوني نفسه موجوداً، وليس مجرد صفحة تشير إليه.</p></div>
+          <div><span class="eyebrow">Official Jordanian Sources</span><h2 data-i18n="sourcesTitle">المصادر والتغطية القانونية</h2><p data-i18n="sourcesDesc">يعرض قانوني حالة النصوص الأساسية الموجودة فعلياً في مخزون البحث السحابي، إلى جانب مصادر المزامنة الحكومية.</p></div>
           <button class="secondary-btn" id="refreshSourcesBtn" type="button" data-i18n="refresh">تحديث</button>
         </div>
         <div class="coverage-grid" id="coverageGrid"></div>
@@ -117,7 +118,7 @@
 
     <section class="view page-view" id="settingsView">
       <div class="page-scroll">
-        <div class="page-head"><div><span class="eyebrow">Pilot Health</span><h2 data-i18n="settingsTitle">حالة النظام</h2><p data-i18n="settingsDesc">هذه الصفحة مخصصة للتشغيل والتجربة. مفاتيح الخدمات تبقى في ملف .env في الخادم فقط.</p></div></div>
+        <div class="page-head"><div><span class="eyebrow">Pilot Health</span><h2 data-i18n="settingsTitle">حالة النظام</h2><p data-i18n="settingsDesc">حالة خدمات قانوني الحية. مفاتيح الخدمات محفوظة كأسرار في بيئة الخادم ولا تصل إلى المتصفح.</p></div></div>
         <div class="settings-grid" id="settingsGrid"></div>
       </div>
     </section>
@@ -137,7 +138,7 @@
   <button data-view="settings"><svg viewBox="0 0 24 24"><path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/></svg><span data-i18n="settings">الإعدادات</span></button>
 </nav>
 <div class="toast" id="toast"></div>
-<script src="/static/app.js?v=34" defer></script>
-<script src="/static/feedback-review.js?v=1" defer></script>
+<script src="/static/app.js?v=40" defer></script>
+<script src="/static/feedback-review.js?v=2" defer></script>
 </body>
 </html>
