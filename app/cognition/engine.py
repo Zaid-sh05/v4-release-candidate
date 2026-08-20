@@ -121,15 +121,34 @@ def _extract_actors(text: str) -> list[Actor]:
                 idx += 1
                 break
 
+    # Word-boundary-anchored so a trigger word never matches as a substring of a longer word
+    # (e.g. unanchored "بيت" previously matched inside "البيت" and captured whatever followed
+    # it as a fake actor). Arabic letters are \w under Python's default Unicode regex, so \b
+    # works the same way it does for Latin text.
     name_patterns = [
-        r"(?:قام|قال|ضرب|دخل|أخذ|اخذ|قتل|طعن)\s+([\u0621-\u064A]{3,})",
-        r"(?:جاره|منزل|بيت)\s+([\u0621-\u064A]{3,})",
+        r"\b(?:قام|قال|طلب|رفض|أيد|ايد|عاد|أصيب|اصيب|اتصل|ذهب|خرج|هرب|اعترف|أنكر|انكر|"
+        r"ضرب|دخل|أخذ|اخذ|قتل|طعن)\s+([\u0621-\u064A]{3,})",
+        r"\b(?:جاره|منزل|بيت)\s+([\u0621-\u064A]{3,})",
     ]
     for pattern in name_patterns:
         for name in re.findall(pattern, text):
             if name not in {a.label for a in actors} and name not in {"الشخص", "الرجل", "المتهم", "المكان", "الباب"}:
                 actors.append(Actor(id=f"a{idx}", label=name, role="person"))
                 idx += 1
+
+    # Natural Arabic narrative order very commonly puts the subject BEFORE the verb ("زيد قال",
+    # "عدي طلب"), which the trigger-verb-first patterns above never capture, silently dropping
+    # the story's actual named parties. Relies on the same downstream prune_non_person_actors
+    # blocklist as the safety net against non-name words that happen to precede these verbs.
+    subject_verb_pattern = (
+        r"([ء-ي]{3,})\s+"
+        r"(?:قال|قالت|طلب|طلبت|رفض|رفضت|أيد|ايد|أيدت|ايدت|عاد|عادت|أصيب|اصيب|أصيبت|اصيبت|"
+        r"اتصل|اتصلت|ذهب|ذهبت|خرج|خرجت|هرب|هربت|اعترف|اعترفت|أنكر|انكر|أنكرت|انكرت)\b"
+    )
+    for name in re.findall(subject_verb_pattern, text):
+        if name not in {a.label for a in actors}:
+            actors.append(Actor(id=f"a{idx}", label=name, role="person"))
+            idx += 1
     return actors
 
 

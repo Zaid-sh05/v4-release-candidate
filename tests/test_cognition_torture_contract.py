@@ -100,6 +100,32 @@ def test_real_taking_survives_when_a_false_statement_context_shares_its_span():
     assert "statement" in event_types
 
 
+def test_named_parties_are_captured_in_verb_subject_narrative_order():
+    # Phase 7 probe against the handoff's own reference complex scenario surfaced this: Arabic
+    # narrative commonly puts the verb before the subject ("طلب عدي مبلغ", "أصيب عدي"), which the
+    # original trigger-verb list never covered, silently dropping the story's central named party
+    # from the actors list entirely (a false negative, not a false attribution, but it directly
+    # weakens the "parties" section of any case analysis built from this fact pattern).
+    case = CaseCognitionEngine(enable_llm=False).analyze(
+        "أصيب عدي بجرح بسيط في الوجه. لاحقا طلب عدي مبلغ مالي مقابل الاستمرار على أقواله."
+    )
+    labels = {a.label for a in case.actors}
+    assert "عدي" in labels
+
+
+def test_unanchored_trigger_word_does_not_match_inside_a_longer_word():
+    # Regression for a bug the fix above exposed: "بيت" (house) as a trigger word had no word
+    # boundary, so it matched as a substring inside "البيت" (the house) and then captured
+    # whatever word happened to follow it as a fake person actor.
+    case = CaseCognitionEngine(enable_llm=False).analyze(
+        "حدا دخل البيت وإحنا مش عارفين مين، كسر الشباك وأخذ مصاري من الخزانة"
+    )
+    labels = {a.label for a in case.actors}
+    assert "وإحنا" not in labels
+    assert "البيت" not in labels
+    assert "مصاري" not in labels
+
+
 def test_llm_enrichment_cannot_create_unsupported_named_actor_or_event():
     message = "أحمد أخذ الحاسوب من المكتب"
     enrichment = CognitionEnrichment(
