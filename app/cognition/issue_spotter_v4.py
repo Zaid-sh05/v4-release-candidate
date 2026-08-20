@@ -1,14 +1,38 @@
 from __future__ import annotations
 
 from .issue_spotter import spot_issues as base_spot_issues
-from .language_match import contains_fuzzy
+from .language_match import contains_fuzzy, normalize_flexible
 from .models import CaseModel, LegalHypothesis
+
+
+_FALSE_TAKING_CONTEXTS = (
+    "اخذ اقوال", "أخذ أقوال", "اخذ اقواله", "أخذ أقواله", "اخذ اقوالها", "أخذ أقوالها",
+    "اخذ شهاده", "أخذ شهادة", "اخذ الشهاده", "أخذ الشهادة", "اخذ افاده", "أخذ إفادة",
+    "taking a statement", "took his statement", "took her statement", "recorded his statement",
+)
 
 
 def _add(items: list[LegalHypothesis], hypothesis: LegalHypothesis) -> None:
     if any(item.code == hypothesis.code for item in items):
         return
     items.append(hypothesis)
+
+
+def _real_property_taking(case: CaseModel) -> bool:
+    """Return True only for a property-taking meaning, not procedural 'taking a statement'."""
+    event_types = {event.event_type for event in case.events}
+    signals = {signal.code for signal in case.semantic_signals}
+    if "taking" in event_types or "property.taking" in signals:
+        return True
+
+    text = case.raw_message
+    if contains_fuzzy(text, "سرق", "سرقه", "سرقة", "استولى", "stole", "stolen", "theft"):
+        return True
+
+    normalized = normalize_flexible(text)
+    for phrase in _FALSE_TAKING_CONTEXTS:
+        normalized = normalized.replace(normalize_flexible(phrase), " ")
+    return contains_fuzzy(normalized, "اخذ", "أخذ", "اخد", "took")
 
 
 def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
@@ -22,6 +46,12 @@ def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
     text = case.raw_message
     signals = {signal.code for signal in case.semantic_signals}
     event_types = {event.event_type for event in case.events}
+
+    # The stable legacy spotter intentionally recognizes Arabic "أخذ" broadly. In police/procedure
+    # narratives that word often means taking/recording a statement, not taking property. Remove the
+    # theft hypothesis unless an independent property-taking signal remains after scenario sanity.
+    if not _real_property_taking(case):
+        items = [item for item in items if item.code != "criminal.theft"]
 
     unlicensed = "traffic.unlicensed_status" in signals or contains_fuzzy(
         text, "بدون رخصه", "بدون رخصة", "لا يحمل رخصه", "لا يحمل رخصة", "unlicensed", "no driving license", "no driving licence"
