@@ -68,8 +68,8 @@ _HARD_RULE_MARKERS_EN = (
 
 def _source_context(sources: list[SourceItem]) -> str:
     blocks=[]
-    for i,s in enumerate(sources[:10],1):
-        excerpt=' '.join((s.excerpt or '').split())[:2600]
+    for i,s in enumerate(sources[:8],1):
+        excerpt=' '.join((s.excerpt or '').split())[:2200]
         blocks.append(
             f'''[S{i}] {s.title}\nAuthority: {s.authority}\nDomain: {s.domain}\n'''
             f'''Law number: {s.law_number or '-'}\nYear: {s.year or '-'}\nArticle: {s.article or '-'}\n'''
@@ -79,7 +79,7 @@ def _source_context(sources: list[SourceItem]) -> str:
 
 
 def _history_text(history: list[dict]) -> str:
-    return '\n'.join(f"{m['role']}: {m['content'][:1400]}" for m in history[-6:])
+    return '\n'.join(f"{m['role']}: {m['content'][:1100]}" for m in history[-5:])
 
 
 def _case_text(case: Any | None) -> str:
@@ -91,19 +91,19 @@ def _case_text(case: Any | None) -> str:
         return '(case model unavailable)'
     keep={
         'user_goal': data.get('user_goal'),
-        'actors': data.get('actors',[])[:12],
-        'facts': data.get('facts',[])[:18],
-        'events': data.get('events',[])[:18],
-        'evidence': data.get('evidence',[])[:12],
-        'amounts': data.get('amounts',[])[:8],
-        'dates': data.get('dates',[])[:8],
+        'actors': data.get('actors',[])[:10],
+        'facts': data.get('facts',[])[:14],
+        'events': data.get('events',[])[:14],
+        'evidence': data.get('evidence',[])[:10],
+        'amounts': data.get('amounts',[])[:6],
+        'dates': data.get('dates',[])[:6],
         'procedural_posture': data.get('procedural_posture'),
-        'domains': data.get('domains',[])[:6],
-        'hypotheses': data.get('hypotheses',[])[:10],
-        'clarifying_questions': data.get('clarifying_questions',[])[:8],
-        'warnings': data.get('warnings',[])[:6],
+        'domains': data.get('domains',[])[:5],
+        'hypotheses': data.get('hypotheses',[])[:8],
+        'clarifying_questions': data.get('clarifying_questions',[])[:6],
+        'warnings': data.get('warnings',[])[:5],
     }
-    return json.dumps(keep,ensure_ascii=False,separators=(',',':'))[:9000]
+    return json.dumps(keep,ensure_ascii=False,separators=(',',':'))[:6500]
 
 
 def _ascii_digits(text: str) -> str:
@@ -118,11 +118,6 @@ def _source_blob(sources: list[SourceItem]) -> str:
 
 
 def validate_generated_answer(answer: str, sources: list[SourceItem], language: str='ar') -> tuple[bool,list[str]]:
-    """Reject obvious citation/number hallucinations before an LLM answer can reach users.
-
-    This deliberately validates hard legal claims, not ordinary case facts such as a user's salary,
-    age, or claimed loss. Those facts are already constrained by the case model and conversation.
-    """
     text=(answer or '').strip()
     if not text:
         return False,['empty']
@@ -146,7 +141,6 @@ def validate_generated_answer(answer: str, sources: list[SourceItem], language: 
             reasons.append('uncited_hard_legal_claim')
         nums=re.findall(r'(?<!\w)\d{1,6}(?:\.\d+)?(?!\w)',low)
         for num in nums:
-            # Ignore source citation numbers themselves.
             if re.search(rf'\[S{re.escape(num)}\]',paragraph):
                 continue
             if num not in blob:
@@ -176,14 +170,20 @@ def generate_answer(
         return None
     try:
         from openai import OpenAI
-        client=OpenAI(api_key=settings.openai_api_key)
+        client=OpenAI(
+            api_key=settings.openai_api_key,
+            timeout=settings.openai_timeout_seconds,
+            max_retries=0,
+        )
         labels=[DOMAIN_LABELS.get(d,{}).get(route.language,d) for d in route.domains]
         prompt=f'''Jurisdiction: Jordan\nLanguage: {route.language}\nLegal routing hint: {', '.join(labels)}\nIntent: {route.intent}\n\nConversation context:\n{_history_text(history) or '(new conversation)'}\n\nCurrent user question:\n{message}\n\nStructured case understanding:\n{_case_text(case)}\n\nGrounded draft from Qanoni's deterministic safety layer:\n{draft_answer or '(no draft available)'}\n\nOfficial evidence:\n{_source_context(sources) or 'No official excerpt was retrieved. In this situation you may organize facts and identify what must be researched, but you must not state legal rules, article numbers, penalties, deadlines, or remedies.'}\n\nWrite the final user-facing answer. Adapt the structure to the question; do not mechanically include irrelevant headings.'''
         response=client.responses.create(
             model=settings.openai_model,
             instructions=SYSTEM_AR if route.language=='ar' else SYSTEM_EN,
             input=prompt,
-            max_output_tokens=2400,
+            reasoning={'effort': settings.openai_reasoning_effort},
+            text={'verbosity':'medium'},
+            max_output_tokens=1600,
         )
         text=strip_emoji_style((response.output_text or '').strip())
         ok,_=validate_generated_answer(text,sources,route.language)
@@ -197,7 +197,11 @@ def embed_query(text: str) -> list[float] | None:
         return None
     try:
         from openai import OpenAI
-        client=OpenAI(api_key=settings.openai_api_key)
+        client=OpenAI(
+            api_key=settings.openai_api_key,
+            timeout=settings.openai_embedding_timeout_seconds,
+            max_retries=0,
+        )
         r=client.embeddings.create(model=settings.openai_embedding_model,input=text)
         return r.data[0].embedding
     except Exception:

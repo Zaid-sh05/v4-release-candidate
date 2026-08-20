@@ -12,6 +12,8 @@ from .text import normalize_ar
 
 
 _ORIGINAL_RETRIEVAL_FALLBACK = _legacy_chat.retrieval_fallback
+_ORIGINAL_GENERATE_ANSWER = _legacy_chat.generate_answer
+_ORIGINAL_EMBED_QUERY = _legacy_chat.embed_query
 
 
 def _allowed_domains(domains):
@@ -91,6 +93,47 @@ def _v4_retrieval_fallback(message, route, sources):
     return _ORIGINAL_RETRIEVAL_FALLBACK(message, route, sources)
 
 
+def _should_use_openai_writer(message, route, case=None) -> bool:
+    """Spend model latency only where synthesis materially improves the legal answer."""
+    if route.intent in {'penalty','deadline','appeal_deadline','fees','judgment'}:
+        return False
+    try:
+        if _legacy_chat._needs_broad_synthesis(message, route):
+            return True
+    except Exception:
+        pass
+    # Long fact patterns benefit from the writer because cognition has already built the case graph.
+    compact=' '.join((message or '').split())
+    if case is not None and len(compact) >= 120:
+        return True
+    return False
+
+
+def _v4_generate_answer(message, route, sources, history, *, draft_answer=None, case=None):
+    if not _should_use_openai_writer(message, route, case):
+        return None
+    return _ORIGINAL_GENERATE_ANSWER(
+        message,
+        route,
+        sources,
+        history,
+        draft_answer=draft_answer,
+        case=case,
+    )
+
+
+def _v4_embed_query(text: str):
+    """Avoid an external embedding round-trip for short direct questions.
+
+    Keyword + adaptive retrieval already performs well for short direct legal questions. Long
+    narratives keep semantic retrieval because it materially improves source recall.
+    """
+    compact=' '.join((text or '').split())
+    if len(compact) < 120:
+        return None
+    return _ORIGINAL_EMBED_QUERY(text)
+
+
 class _GuardedRepository:
     def __init__(self, inner):
         self._inner = inner
@@ -132,6 +175,8 @@ _legacy_chat.analyze_query = route_query
 _legacy_chat._apply_cognition_to_route = apply_case_route
 _legacy_chat.generate_case_analysis_answer = generate_lawyer_case_analysis_answer
 _legacy_chat.retrieval_fallback = _v4_retrieval_fallback
+_legacy_chat.generate_answer = _v4_generate_answer
+_legacy_chat.embed_query = _v4_embed_query
 _legacy_chat.repository = _GuardedRepository(_legacy_chat.repository)
 _legacy_chat.supabase_store = _GuardedSupabaseStore(_legacy_chat.supabase_store)
 
@@ -142,4 +187,5 @@ __all__ = [
     "_filter_source_items",
     "_filter_source_rows",
     "_v4_retrieval_fallback",
+    "_should_use_openai_writer",
 ]

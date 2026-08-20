@@ -23,10 +23,10 @@ def _source() -> SourceItem:
     )
 
 
-def _route() -> RouteResult:
+def _route(intent: str='legal_question') -> RouteResult:
     return RouteResult(
         language='ar',
-        intent='legal_question',
+        intent=intent,
         primary_domain='labor',
         domains=['labor'],
         confidence=0.95,
@@ -65,8 +65,9 @@ def test_validator_rejects_hard_legal_rule_without_sources():
     assert 'hard_legal_claim_without_sources' in reasons
 
 
-def test_generate_answer_uses_grounded_draft_case_and_official_evidence(monkeypatch):
+def test_generate_answer_uses_grounded_draft_case_and_latency_controls(monkeypatch):
     captured={}
+    client_kwargs={}
 
     class FakeResponses:
         def create(self,**kwargs):
@@ -74,13 +75,16 @@ def test_generate_answer_uses_grounded_draft_case_and_official_evidence(monkeypa
             return SimpleNamespace(output_text='المبدأ القانوني: تنص المادة 25 على معالجة الفصل التعسفي وفق شروطها. [S1]')
 
     class FakeClient:
-        def __init__(self,api_key):
-            assert api_key=='test-key'
+        def __init__(self,**kwargs):
+            client_kwargs.update(kwargs)
+            assert kwargs['api_key']=='test-key'
             self.responses=FakeResponses()
 
     monkeypatch.setitem(sys.modules,'openai',SimpleNamespace(OpenAI=FakeClient))
     monkeypatch.setattr(llm.settings,'openai_api_key','test-key')
     monkeypatch.setattr(llm.settings,'openai_model','gpt-5.6')
+    monkeypatch.setattr(llm.settings,'openai_reasoning_effort','low')
+    monkeypatch.setattr(llm.settings,'openai_timeout_seconds',18.0)
 
     case=SimpleNamespace(to_dict=lambda:{
         'user_goal':'legal_analysis',
@@ -105,8 +109,12 @@ def test_generate_answer_uses_grounded_draft_case_and_official_evidence(monkeypa
         case=case,
     )
     assert answer and '[S1]' in answer
+    assert client_kwargs['timeout']==18.0
+    assert client_kwargs['max_retries']==0
     assert captured['model']=='gpt-5.6'
-    assert captured['max_output_tokens']==2400
+    assert captured['max_output_tokens']==1600
+    assert captured['reasoning']=={'effort':'low'}
+    assert captured['text']=={'verbosity':'medium'}
     assert 'Grounded draft' in captured['input']
     assert 'مسودة آمنة' in captured['input']
     assert 'Structured case understanding' in captured['input']
@@ -119,10 +127,39 @@ def test_generate_answer_falls_back_when_model_invents_article(monkeypatch):
             return SimpleNamespace(output_text='تنص المادة 999 على عقوبة مقدارها 777 ديناراً. [S1]')
 
     class FakeClient:
-        def __init__(self,api_key):
+        def __init__(self,**kwargs):
             self.responses=FakeResponses()
 
     monkeypatch.setitem(sys.modules,'openai',SimpleNamespace(OpenAI=FakeClient))
     monkeypatch.setattr(llm.settings,'openai_api_key','test-key')
     result=llm.generate_answer('حالات الفصل التعسفي',_route(),[_source()],[],draft_answer='مسودة [S1]')
     assert result is None
+
+
+def test_v4_writer_policy_skips_short_direct_questions_and_keeps_high_value_synthesis():
+    from app import chat_v4
+
+    direct=_route('procedure')
+    assert chat_v4._should_use_openai_writer('ما هي اجراءات الطلاق؟',direct,None) is False
+
+    overview=_route('legal_question')
+    assert chat_v4._should_use_openai_writer('حالات الفصل التعسفي في القانون الأردني',overview,None) is True
+
+    long_case=(
+        'قام صاحب العمل بإنهاء خدمة العامل بعد خلاف طويل، وذكر سبباً مختلفاً في كتاب الفصل '
+        'عن السبب الذي أرسله في الرسائل، ويوجد شهود ورسائل ويريد العامل معرفة وضعه القانوني.'
+    )
+    assert chat_v4._should_use_openai_writer(long_case,overview,SimpleNamespace()) is True
+
+
+def test_v4_short_query_skips_embedding_round_trip(monkeypatch):
+    from app import chat_v4
+
+    called=[]
+    monkeypatch.setattr(chat_v4,'_ORIGINAL_EMBED_QUERY',lambda text: called.append(text) or [0.1])
+    assert chat_v4._v4_embed_query('قطعت إشارة حمراء شو العقوبة؟') is None
+    assert called==[]
+
+    long_text=' '.join(['تفاصيل']*40)
+    assert chat_v4._v4_embed_query(long_text)==[0.1]
+    assert called==[long_text]
