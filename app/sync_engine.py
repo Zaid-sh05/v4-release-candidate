@@ -1,5 +1,5 @@
 from __future__ import annotations
-import io, re, zipfile, xml.etree.ElementTree as ET
+import io, re, time, zipfile, xml.etree.ElementTree as ET
 from collections import deque
 from urllib.parse import urljoin, urlparse
 import requests
@@ -70,15 +70,46 @@ def choose_pdf_extraction(primary_text:str,fallback_text:str|None)->str:
     fallback_articles=_article_count(fallback_text)
     return fallback_text if fallback_articles>primary_articles else primary_text
 
-def pdf_text_with_fallback(data:bytes)->str:
+def pdf_extraction_report(data:bytes)->dict:
+    """Extract PDF text with the same conservative fallback logic pdf_text_with_fallback()
+    exposes to production, but returning full diagnostic detail (which extractor was used,
+    per-attempt timings and article counts) instead of just the winning text. This is the
+    single source of truth both the production crawler and the read-only diagnostic tooling
+    call, so a diagnostic run always reflects exactly what a real sync would do.
+    """
+    t0=time.monotonic()
     primary=pdf_text(data)
-    if _article_count(primary)>0 or not looks_like_reversed_arabic_reading_order(primary):
-        return primary
+    primary_time=time.monotonic()-t0
+    primary_articles=_article_count(primary)
+    corrupted=looks_like_reversed_arabic_reading_order(primary)
+    report={
+        'primary_extractor':'pypdf','primary_text':primary,'primary_time_seconds':primary_time,
+        'primary_article_count':primary_articles,'primary_looks_reversed':corrupted,
+        'fallback_attempted':False,'fallback_extractor':None,'fallback_text':None,
+        'fallback_time_seconds':None,'fallback_article_count':None,'fallback_error':None,
+        'selected_extractor':'pypdf','selected_text':primary,
+    }
+    if primary_articles>0 or not corrupted:
+        return report
+    report['fallback_attempted']=True
+    report['fallback_extractor']='pdfplumber'
     try:
+        t0=time.monotonic()
         fallback=pdfplumber_text(data)
-    except Exception:
-        return primary
-    return choose_pdf_extraction(primary,fallback)
+        report['fallback_time_seconds']=time.monotonic()-t0
+        report['fallback_text']=fallback
+        report['fallback_article_count']=_article_count(fallback)
+    except Exception as exc:
+        report['fallback_error']=f'{type(exc).__name__}: {exc}'
+        return report
+    selected=choose_pdf_extraction(primary,fallback)
+    if selected==fallback:
+        report['selected_extractor']='pdfplumber'
+        report['selected_text']=fallback
+    return report
+
+def pdf_text_with_fallback(data:bytes)->str:
+    return pdf_extraction_report(data)['selected_text']
 
 def docx_text(data:bytes)->str:
     with zipfile.ZipFile(io.BytesIO(data)) as z: xml=z.read('word/document.xml')

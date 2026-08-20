@@ -28,6 +28,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from collections import Counter
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -46,7 +47,7 @@ from app.sync_engine import (
     docx_text,
     is_docx,
     is_pdf,
-    pdf_text,
+    pdf_extraction_report,
     safe_url,
     split_articles,
 )
@@ -221,10 +222,12 @@ def diagnose_url(url: str) -> None:
         return
 
     ctype = (r.headers.get("content-type") or "").lower()
+    pdf_report = None
     if is_pdf(r.content):
         fmt = "pdf"
         raw_title = urlparse(r.url).path.rsplit("/", 1)[-1]
-        text = pdf_text(r.content)
+        pdf_report = pdf_extraction_report(r.content)
+        text = pdf_report["selected_text"]
     elif is_docx(r.content):
         fmt = "docx"
         raw_title = urlparse(r.url).path.rsplit("/", 1)[-1]
@@ -272,6 +275,46 @@ def diagnose_url(url: str) -> None:
 
     accepted, reason = quality_gate(title=title, text=text, domain=domain, chunks=pieces, source_domains=None)
     print(f"  quality_gate() verdict: {'ACCEPTED' if accepted else 'REJECTED'} (reason={reason})")
+
+    if pdf_report is not None:
+        print("\n  -- PDF extraction pipeline detail (same logic sync_source() uses in production) --")
+        print(f"    selected extractor: {pdf_report['selected_extractor']}")
+        print(f"    primary (pypdf): {pdf_report['primary_article_count']} articles detected, "
+              f"{pdf_report['primary_time_seconds']:.2f}s, "
+              f"looked reversed-Arabic: {pdf_report['primary_looks_reversed']}")
+        if pdf_report["fallback_attempted"]:
+            if pdf_report["fallback_error"]:
+                print(f"    fallback (pdfplumber): ERROR {pdf_report['fallback_error']}")
+            else:
+                print(f"    fallback (pdfplumber): {pdf_report['fallback_article_count']} articles "
+                      f"detected, {pdf_report['fallback_time_seconds']:.2f}s")
+        else:
+            print("    fallback: not attempted (primary already had articles, or did not look "
+                  "reversed-Arabic)")
+
+        forward_marker = text.count("المادة")
+        reversed_marker = text.count("المادة"[::-1])
+        total_markers = forward_marker + reversed_marker
+        readability = (forward_marker / total_markers) if total_markers else None
+        print(f"    'المادة' occurrences: forward={forward_marker} reversed={reversed_marker} "
+              f"(readability score: {readability if readability is not None else 'n/a (no marker found either way)'})")
+
+        if article_pieces:
+            nums = sorted({int(n) for n in nums})
+            lo, hi = nums[0], nums[-1]
+            seen = set(nums)
+            missing = [n for n in range(lo, hi + 1) if n not in seen]
+            raw_nums = [p[0] for p in article_pieces]
+            duplicates = [n for n, c in Counter(raw_nums).items() if c > 1]
+            print(f"    article-number range: {lo}..{hi} ({len(seen)} distinct of "
+                  f"{hi - lo + 1} possible)")
+            print(f"    missing numbers in range (first 30): {missing[:30]}"
+                  f"{' ...' if len(missing) > 30 else ''}")
+            print(f"    duplicate article numbers: {duplicates if duplicates else 'none'}")
+
+        usable = accepted and len(article_pieces) >= 3
+        print(f"    production-usable article segmentation: {usable}"
+              f"{' (accepted by quality_gate but very few articles detected)' if accepted and not usable else ''}")
 
 
 def main() -> int:
