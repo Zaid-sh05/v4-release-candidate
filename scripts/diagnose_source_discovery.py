@@ -85,12 +85,22 @@ def _retry_get(url: str, *, attempts: int = 3, **kwargs):
     raise last_exc
 
 
+def _normalize_for_keyword_match(s: str) -> str:
+    # Government CMS links often carry the Arabic law title as literal (unencoded) text in the
+    # URL itself, but with underscores/hyphens standing in for spaces (e.g. a Civil Procedure
+    # amendment shows up as ".../قانون_معدل_لقانون_أصول_المحاكمات_المدنية_رقم_6_لسنة_2024.pdf").
+    # A plain "k in href" check against a space-separated keyword like "المحاكمات المدنية" never
+    # matches that, silently missing a real, already-discovered hit. Normalize both sides on
+    # word-separator characters so the match survives either convention.
+    return s.replace("_", " ").replace("-", " ")
+
+
 def _flag_target_law_matches(candidates: list[tuple[str, str]], base_url: str) -> None:
     flagged = False
     for law, keywords in TARGET_LAW_KEYWORDS.items():
         matches = [
             (href, label) for href, label in candidates
-            if any(k in href or k in label for k in keywords)
+            if any(k in _normalize_for_keyword_match(href) or k in _normalize_for_keyword_match(label) for k in keywords)
             and "معدل" not in href and "معدل" not in label  # exclude amendment laws
         ]
         if matches:
