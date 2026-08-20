@@ -1,0 +1,40 @@
+name: Qanoni Legal Source Discovery Diagnostic (read-only, manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: 'Comma-separated source_ids from source_registry to diagnose (e.g. psd_laws,psd_traffic)'
+        required: false
+        default: ''
+      urls:
+        description: 'Comma-separated explicit URLs to run a full extraction diagnostic on'
+        required: false
+        default: ''
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUNTIME_STORE: sqlite
+      DIAG_SOURCES: ${{ github.event.inputs.sources }}
+      DIAG_URLS: ${{ github.event.inputs.urls }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run read-only source-discovery diagnostic
+        run: python scripts/diagnose_source_discovery.py
