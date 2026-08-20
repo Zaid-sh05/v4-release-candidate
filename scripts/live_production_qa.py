@@ -5,6 +5,7 @@ import re
 import sys
 import uuid
 from typing import Any
+from urllib.parse import unquote
 
 import httpx
 
@@ -19,6 +20,10 @@ created_conversations: list[str] = []
 
 def fail(message: str) -> None:
     raise AssertionError(message)
+
+
+def canonical_url(value: str | None) -> str:
+    return unquote((value or "").strip()).rstrip("/")
 
 
 def post_chat(client: httpx.Client, message: str, *, language: str = "ar", force_domain: str | None = None) -> dict[str, Any]:
@@ -151,11 +156,12 @@ def main() -> int:
         probe = newest_promoted_probe(sb)
         probe_message = f"ما هو النص المتعلق بعبارة: {probe['phrase']}"
         cloud = post_chat(client, probe_message, force_domain=probe["domain"])
-        returned_urls = {s.get("source_url") for s in cloud.get("sources") or []}
-        if probe["source_url"] not in returned_urls:
+        returned_urls = {canonical_url(s.get("source_url")) for s in cloud.get("sources") or []}
+        expected_url = canonical_url(probe["source_url"])
+        if expected_url not in returned_urls:
             fail(
                 "live chat did not retrieve the promoted weekly-sync cloud document; "
-                f"expected={probe['source_url']}, got={list(returned_urls)[:8]}"
+                f"expected={expected_url}, got={list(returned_urls)[:8]}"
             )
         print(f"[PASS] weekly-sync cloud retrieval -> {probe['title'][:100]}")
 
