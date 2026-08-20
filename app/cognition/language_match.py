@@ -8,6 +8,7 @@ _ARABIC_DIACRITICS_RE = re.compile(r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u0
 _TOKEN_RE = re.compile(r"[a-z0-9\u0600-\u06ff]+", re.IGNORECASE)
 _REPEAT_RE = re.compile(r"(.)\1{2,}", re.IGNORECASE)
 _ARABIC_CHAR_RE = re.compile(r"[\u0600-\u06ff]")
+_SHORT_WAW_STEMS = {"اخذ", "اخد", "كسر", "دخل", "ضرب", "قتل", "سرق", "طعن", "مات"}
 
 
 def normalize_flexible(text: str) -> str:
@@ -32,8 +33,6 @@ def normalize_flexible(text: str) -> str:
         .replace("’", "'")
         .replace("`", "'")
     )
-    # Users often stretch a letter for emphasis (هلووو / hellooo). Keeping at most
-    # two copies avoids destroying legitimate doubled English letters.
     value = _REPEAT_RE.sub(r"\1\1", value)
     return " ".join(_TOKEN_RE.findall(value))
 
@@ -45,9 +44,6 @@ def tokens(text: str) -> list[str]:
 def _arabic_dedup_variant(token: str) -> str | None:
     if not _ARABIC_CHAR_RE.search(token):
         return None
-    # Arabic users frequently double a letter by mistake (كسسر/سررقة). Arabic spelling
-    # normally represents gemination with shadda, so exposing a collapsed variant is
-    # considerably safer here than doing the same globally for English words.
     collapsed = re.sub(r"(.)\1+", r"\1", token)
     return collapsed if collapsed != token else None
 
@@ -61,17 +57,19 @@ def _token_variants(token: str) -> set[str]:
     if collapsed:
         variants.add(collapsed)
 
-    # Conservative Arabic clitics: expose matching alternatives rather than mutating
-    # the original token. Do not strip a bare leading waw from short words.
     snapshot = list(variants)
     for current in snapshot:
         for prefix in ("وال", "فال", "بال", "كال", "لل", "ال"):
             if current.startswith(prefix) and len(current) >= len(prefix) + 3:
                 variants.add(current[len(prefix):])
-        if current.startswith("و") and len(current) >= 5:
-            variants.add(current[1:])
-        if current.startswith("ف") and len(current) >= 5:
-            variants.add(current[1:])
+        if current.startswith("و"):
+            stem = current[1:]
+            if len(current) >= 5 or stem in _SHORT_WAW_STEMS:
+                variants.add(stem)
+        if current.startswith("ف"):
+            stem = current[1:]
+            if len(current) >= 5 or stem in _SHORT_WAW_STEMS:
+                variants.add(stem)
     return {v for v in variants if v}
 
 
@@ -84,9 +82,6 @@ def _similarity(left: str, right: str) -> float:
         return 1.0
     if not left or not right:
         return 0.0
-    # Short Arabic cues remain exact-only because collisions are common. For English,
-    # allow a 3↔4 character one-letter typo such as lok/lock when the target cue itself
-    # is at least four characters.
     if min(len(left), len(right)) <= 3:
         if _ascii_word(left) and _ascii_word(right) and max(len(left), len(right)) >= 4:
             return SequenceMatcher(None, left, right).ratio()
