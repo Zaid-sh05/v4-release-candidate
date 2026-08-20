@@ -65,5 +65,8 @@ jobs:
       - name: Run grounded feedback correction tests
         run: python -m pytest -q tests/test_feedback_self_correction.py
 
+      - name: Run observability tests
+        run: python -m pytest -q tests/test_observability.py
+
       - name: Run API smoke test
         run: python -m pytest -q tests/test_api_smoke.py

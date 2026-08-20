@@ -10,6 +10,7 @@ from .config import ROOT, settings
 from .models import ChatRequest, ChatResponse, FeedbackRequest
 from .chat_v4 import handle_chat
 from .feedback_review import review_negative_feedback
+from .observability import ai_runtime_status, effective_corpus_stats
 from .repository import repository
 from .router import DOMAIN_LABELS
 from .mcp_runtime import build_mcp_servers
@@ -79,7 +80,21 @@ def sw(): return FileResponse(STATIC/'sw.js',media_type='application/javascript'
 
 @app.get('/api/health')
 def health():
-    return {'status':'ok','app':settings.app_name,'version':settings.app_version,'environment':settings.app_env,'llm':'configured' if settings.openai_api_key else 'not_configured','supabase':supabase_store.health(),'runtime_store':runtime_store.active_name,'admin_sync_enabled':bool(settings.admin_api_key),'mcp':{'enabled':bool(MCP_DOMAINS),'servers':list(MCP_DOMAINS)},'corpus':repository.stats()}
+    ai=ai_runtime_status()
+    any_llm=bool(ai['answer_generation']['configured'] or ai['cognition']['configured'])
+    return {
+        'status':'ok',
+        'app':settings.app_name,
+        'version':settings.app_version,
+        'environment':settings.app_env,
+        'llm':'configured' if any_llm else 'deterministic_only',
+        'ai':ai,
+        'supabase':supabase_store.health(),
+        'runtime_store':runtime_store.active_name,
+        'admin_sync_enabled':bool(settings.admin_api_key),
+        'mcp':{'enabled':bool(MCP_DOMAINS),'servers':list(MCP_DOMAINS)},
+        'corpus':effective_corpus_stats(),
+    }
 
 @app.get('/api/domains')
 def domains(): return [{'id':d,'label_ar':x['ar'],'label_en':x['en'],'tools':['search_official_law','get_article','list_official_sources']} for d,x in DOMAIN_LABELS.items()]
@@ -88,7 +103,7 @@ def sources(): return repository.source_registry()
 @app.get('/api/coverage')
 def coverage(): return repository.coverage()
 @app.get('/api/stats')
-def stats(): return repository.stats()
+def stats(): return effective_corpus_stats()
 @app.get('/api/search')
 def search(q:str=Query(min_length=2),domain:str='general',limit:int=8): return {'query':q,'domain':domain,'results':repository.search(q,[domain],min(max(limit,1),20))}
 @app.post('/api/chat',response_model=ChatResponse)
