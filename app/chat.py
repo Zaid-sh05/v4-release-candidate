@@ -56,12 +56,7 @@ def _source_is_usable(source:SourceItem)->bool:
 
 
 def _guard_sources(route:RouteResult,sources:list[SourceItem])->list[SourceItem]:
-    """Keep only readable sources that belong to the active legal route.
-
-    This is a safety/quality boundary, not a relevance model. In highly specialized domains such
-    as cybercrime, a general criminal article may never displace an available cyber source merely
-    because it contains generic words like threat, money, images, or punishment.
-    """
+    """Keep only readable sources that belong to the active legal route."""
     allowed=set(route.domains or [route.primary_domain])
     cleaned=[]; seen=set()
     for source in sources:
@@ -74,7 +69,6 @@ def _guard_sources(route:RouteResult,sources:list[SourceItem])->list[SourceItem]
         primary=[s for s in cleaned if s.domain==route.primary_domain]
         if primary:
             return primary
-        # For a specialized question, no answer is safer than silently substituting another field.
         return []
     return cleaned
 
@@ -179,6 +173,22 @@ def _feedback_review_expansions(message:str,primary_domain:str)->list[str]:
     return out
 
 
+def _needs_broad_synthesis(message:str,route:RouteResult)->bool:
+    if route.intent in {'penalty','deadline','appeal_deadline','fees','judgment'}:
+        return False
+    if route.language=='en':
+        low=(message or '').lower()
+        return any(x in low for x in (
+            'what are the cases','main cases','situations','types of','when is','when can','conditions',
+            'exceptions','overview','explain the law','grounds for','examples of',
+        ))
+    n=normalize_ar(message or '')
+    return any(normalize_ar(x) in n for x in (
+        'حالات','ما هي الحالات','متى يعتبر','متى يكون','انواع','أنواع','شروط','استثناءات',
+        'اشرح القانون','شرح القانون','نظرة عامة','اسباب','أسباب','صور الفصل','امثلة','أمثلة',
+    ))
+
+
 def handle_chat(req:ChatRequest)->ChatResponse:
     prior_history=[]
     if req.conversation_id:
@@ -205,6 +215,7 @@ def handle_chat(req:ChatRequest)->ChatResponse:
 
     review_queries=_feedback_review_expansions(req.message,route.primary_domain) if route.intent!='smalltalk' else []
     cognition_queries=list(dict.fromkeys(cognition_queries+review_queries))[:10]
+    broad_synthesis=_needs_broad_synthesis(effective_message,route)
 
     cid=runtime_store.ensure_conversation(req.conversation_id,route.language)
     runtime_store.save_message(cid,'user',req.message,route.primary_domain,route.intent)
@@ -223,7 +234,7 @@ def handle_chat(req:ChatRequest)->ChatResponse:
         sources=repository.search(effective_message,route.domains,8)
     sources=_guard_sources(route,sources)
 
-    if cognition_queries and (not sources or route.confidence < 0.8 or review_queries):
+    if cognition_queries and (not sources or route.confidence < 0.8 or review_queries or broad_synthesis):
         cognitive_sources=_cloud_keyword_sources([effective_message]+cognition_queries,route.domains,12)
         if not cognitive_sources:
             cognitive_sources=repository.adaptive_search(effective_message,route.domains,route.intent,12,cognition_queries)
@@ -237,7 +248,7 @@ def handle_chat(req:ChatRequest)->ChatResponse:
     best_sources=sources
     used_adaptive=bool(review_queries)
 
-    if grounded is None or grounded.strength!='strong' or (evaluation and evaluation.should_retry):
+    if broad_synthesis or grounded is None or grounded.strength!='strong' or (evaluation and evaluation.should_retry):
         evaluation_seed=evaluation or evaluate_answer(effective_message,route,'',sources)
         expansions=list(dict.fromkeys((evaluation_seed.expanded_queries or [])+cognition_queries))[:10]
         adaptive_sources=_cloud_keyword_sources([effective_message]+expansions,route.domains,12)
@@ -246,7 +257,7 @@ def handle_chat(req:ChatRequest)->ChatResponse:
         adaptive_sources=_guard_sources(route,adaptive_sources)
         if adaptive_sources:
             adaptive_grounded,adaptive_eval=_choose_grounded(effective_message,route,adaptive_sources)
-            if adaptive_grounded and (best_eval is None or adaptive_eval.score>=best_eval.score):
+            if adaptive_grounded and (best_eval is None or adaptive_eval.score>=best_eval.score or broad_synthesis):
                 best_grounded,best_eval,best_sources=adaptive_grounded,adaptive_eval,adaptive_sources
                 used_adaptive=True
 
@@ -259,29 +270,43 @@ def handle_chat(req:ChatRequest)->ChatResponse:
             case_analysis_eval=evaluate_answer(effective_message,route,case_analysis.text,best_sources)
 
     history=runtime_store.history(cid,8)
-    answer=None
     cognition_suffix='-cognition' if case and case.cognition_provider!='deterministic' else ''
-    mode=('official-adaptive-extractive' if used_adaptive else 'official-self-checked-extractive')+cognition_suffix
+    extractive_mode=('official-adaptive-extractive' if used_adaptive else 'official-self-checked-extractive')+cognition_suffix
 
+    base_answer=None
+    base_eval=best_eval
+    base_mode=extractive_mode
     if case_analysis and case_analysis_eval and case_analysis_eval.passed:
-        answer=case_analysis.text
-        best_eval=case_analysis_eval
-        mode='official-case-analysis'+cognition_suffix
+        base_answer=case_analysis.text
+        base_eval=case_analysis_eval
+        base_mode='official-case-analysis'+cognition_suffix
     elif best_grounded and best_eval and best_eval.passed and (best_grounded.strength=='strong' or best_eval.score>=0.84):
-        answer=best_grounded.text
+        base_answer=best_grounded.text
+    elif best_grounded:
+        base_answer=best_grounded.text
     else:
-        llm_answer=generate_answer(effective_message,route,best_sources,history)
-        if llm_answer:
-            llm_eval=evaluate_answer(effective_message,route,llm_answer,best_sources)
-            if llm_eval.passed and (best_eval is None or llm_eval.score>=best_eval.score):
-                answer=llm_answer
-                best_eval=llm_eval
-                mode='official-self-checked-hybrid-rag'+cognition_suffix
-        if not answer and best_grounded:
-            answer=best_grounded.text
-        if not answer:
-            critical={'penalty','deadline','appeal_deadline','fees','judgment','rights'}
-            answer=insufficient_answer(effective_message,route,best_sources) if route.intent in critical else retrieval_fallback(effective_message,route,best_sources)
+        critical={'penalty','deadline','appeal_deadline','fees','judgment','rights'}
+        base_answer=insufficient_answer(effective_message,route,best_sources) if route.intent in critical else retrieval_fallback(effective_message,route,best_sources)
+        base_eval=evaluate_answer(effective_message,route,base_answer,best_sources)
+
+    answer=base_answer
+    mode=base_mode
+
+    llm_answer=generate_answer(
+        effective_message,
+        route,
+        best_sources,
+        history,
+        draft_answer=base_answer,
+        case=case,
+    )
+    if llm_answer:
+        llm_eval=evaluate_answer(effective_message,route,llm_answer,best_sources)
+        floor=max(0.62,(base_eval.score-0.15) if base_eval else 0.62)
+        if llm_eval.passed and llm_eval.score>=floor:
+            answer=llm_answer
+            best_eval=llm_eval
+            mode='official-openai-grounded-writer'+cognition_suffix
 
     answer=strip_emoji_style(answer or insufficient_answer(effective_message,route,best_sources))
     final_eval=evaluate_answer(effective_message,route,answer,best_sources)
