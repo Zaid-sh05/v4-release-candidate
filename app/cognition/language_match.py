@@ -8,7 +8,14 @@ _ARABIC_DIACRITICS_RE = re.compile(r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u0
 _TOKEN_RE = re.compile(r"[a-z0-9\u0600-\u06ff]+", re.IGNORECASE)
 _REPEAT_RE = re.compile(r"(.)\1{2,}", re.IGNORECASE)
 _ARABIC_CHAR_RE = re.compile(r"[\u0600-\u06ff]")
-_SHORT_WAW_STEMS = {"اخذ", "اخد", "كسر", "دخل", "ضرب", "قتل", "سرق", "طعن", "مات"}
+_SHORT_VERB_STEMS = {
+    "اخذ", "اخد", "كسر", "دخل", "ضرب", "قتل", "سرق", "طعن", "مات",
+    "هدد", "نشر", "دفع", "فضح", "سرب", "حول",
+    "فصل", "طرد", "سرح", "انه",
+}
+# Attached object-pronoun/subject suffixes Arabic verbs commonly take (هددني، هددتني،
+# هددوني...). Longest first so "تني" strips before the shorter "ني" would leave a stray "ت".
+_VERB_OBJECT_SUFFIXES = ("تكم", "تهم", "تها", "تني", "وني", "كم", "هم", "ها", "ني", "ته", "تك", "ك", "ه", "ت")
 
 
 def normalize_flexible(text: str) -> str:
@@ -64,12 +71,20 @@ def _token_variants(token: str) -> set[str]:
                 variants.add(current[len(prefix):])
         if current.startswith("و"):
             stem = current[1:]
-            if len(current) >= 5 or stem in _SHORT_WAW_STEMS:
+            if len(current) >= 5 or stem in _SHORT_VERB_STEMS:
                 variants.add(stem)
         if current.startswith("ف"):
             stem = current[1:]
-            if len(current) >= 5 or stem in _SHORT_WAW_STEMS:
+            if len(current) >= 5 or stem in _SHORT_VERB_STEMS:
                 variants.add(stem)
+        if _ARABIC_CHAR_RE.search(current):
+            for suffix in _VERB_OBJECT_SUFFIXES:
+                if not current.endswith(suffix):
+                    continue
+                stem = current[: -len(suffix)]
+                if len(stem) >= 4 or (len(stem) == 3 and stem in _SHORT_VERB_STEMS):
+                    variants.add(stem)
+                break
     return {v for v in variants if v}
 
 

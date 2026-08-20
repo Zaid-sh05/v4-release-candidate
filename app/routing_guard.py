@@ -126,6 +126,37 @@ def _property_crime_context(text: str) -> bool:
     return theft_word or (taking and intrusion)
 
 
+_DIGITAL_MEDIUM_PREPOSITIONS = ("عبر", "من خلال", "بواسطة", "خلال", "via", "through")
+_DIGITAL_MEDIUM_NOUN_TOKENS = {
+    "تطبيق", "تطبيقات", "منصه", "منصات", "موقع", "مواقع", "برنامج", "برامج",
+    "حساب", "حسابات", "رسائل", "رساله", "شات", "النت", "الانترنت",
+    "app", "apps", "platform", "account", "website", "chat", "messages", "online",
+}
+
+
+def _digital_medium_context(text: str) -> bool:
+    """Recognize an unnamed digital communication channel by its grammatical construction.
+
+    A Jordanian narrative routinely describes a threat "through an app" or "via a
+    platform" without ever naming the product. A fixed platform-name list cannot
+    generalize to that, so this looks for the preposition + medium-noun construction
+    itself (e.g. "عبر تطبيق", "من خلال حساب") instead of any specific product name.
+    """
+    words = _tokens(text)
+    for prep in _DIGITAL_MEDIUM_PREPOSITIONS:
+        prep_tokens = _phrase_tokens(prep)
+        width = len(prep_tokens)
+        if not width or width > len(words):
+            continue
+        for i in range(len(words) - width + 1):
+            if not all(prep_tokens[o] in _token_variants(words[i + o]) for o in range(width)):
+                continue
+            for j in range(i + width, min(i + width + 4, len(words))):
+                if _DIGITAL_MEDIUM_NOUN_TOKENS & _token_variants(words[j]):
+                    return True
+    return False
+
+
 def _set_primary(route: RouteResult, primary: str, extras: list[str] | None = None, confidence: float = 0.9) -> RouteResult:
     domains = [primary]
     for domain in extras or []:
@@ -194,6 +225,15 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
     self_defense_terms = ("دفاع عن نفسي", "دفاعا عن نفسي", "هاجمني", "self defense", "self-defense")
     injury_terms = ("اصابة", "إصابة", "انصاب", "اصيب", "أصيب", "جرح", "المستشفى", "injury", "injured", "hospital")
     death_terms = ("وفاة", "توفي", "توفى", "مات", "قتل", "death", "died", "killed")
+    # Decomposed termination concept (verb-class + employment-object-class) alongside the fixed
+    # phrases in labor_terms: "أنهت الشركة خدماتي" (ended my services) never says "فصلني"/"طردني"
+    # literally, but is the same underlying event as long as a termination verb and an
+    # employment object co-occur, regardless of which specific paraphrase or conjugation was used.
+    termination_verb_terms = ("فصل", "طرد", "انه", "سرح", "استغنى", "terminated", "let go")
+    employment_object_terms = (
+        "خدماتي", "خدمتي", "عقدي", "عقد العمل", "وظيفتي", "عملي", "شغلي",
+        "my job", "my contract", "my employment",
+    )
 
     # Dialect/typo tolerance must be applied uniformly across every domain guard, not only
     # traffic/property-crime, otherwise personal-status, labor and cyber routing silently
@@ -202,11 +242,15 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
         return _has(text, *phrases) or contains_fuzzy(text, *phrases)
 
     personal = _matches(*personal_terms)
-    labor = _matches(*labor_terms)
+    termination_verb = _matches(*termination_verb_terms)
+    employment_object = _matches(*employment_object_terms)
+    labor = _matches(*labor_terms) or (termination_verb and employment_object)
     traffic = _traffic_context(text)
     property_crime = _property_crime_context(text)
-    cyber = _matches(*cyber_terms)
     threat = _matches(*threat_terms)
+    # An unnamed/unseen digital medium ("عبر تطبيق ما بعرفه") plus threat language is the same
+    # underlying cyber-extortion narrative as a named platform, so it must route the same way.
+    cyber = _matches(*cyber_terms) or (threat and _digital_medium_context(text))
     violence = _matches(*violence_terms)
     taking = _matches(*taking_terms)
     forced_entry = _matches(*forced_entry_terms)
