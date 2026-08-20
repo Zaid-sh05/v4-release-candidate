@@ -118,6 +118,27 @@ def _looks_like_explicit_new_case(message: str) -> bool:
     return _contains_any(message, _EXPLICIT_NEW_CASE_MARKERS)
 
 
+_CLARIFICATION_LANGUAGE = (
+    'يلزم حسم', 'قد يلزم حسم', 'ما يزال', 'قبل التكييف', 'هل كان', 'هل وقع',
+    'still material', 'still to resolve', 'before a final classification',
+)
+
+
+def _last_assistant_asked_something(last_assistant: str) -> bool:
+    """True only when the prior turn actually invited a short follow-up answer.
+
+    A completed case analysis or final answer does not ask anything, so a short
+    unrelated message that follows it must not be silently merged into that case
+    just because it is short or the lightweight router could not classify it.
+    """
+    if not last_assistant:
+        return False
+    assistant_n = _n(last_assistant)
+    if '؟' in last_assistant or '?' in last_assistant:
+        return True
+    return any(_n(x) in assistant_n for x in _CLARIFICATION_LANGUAGE)
+
+
 def _answers_prior_clarification(message: str, last_assistant: str) -> bool:
     if not last_assistant:
         return False
@@ -129,15 +150,11 @@ def _answers_prior_clarification(message: str, last_assistant: str) -> bool:
         if assistant_has and message_has:
             return True
 
-    clarification_language = (
-        'يلزم حسم', 'قد يلزم حسم', 'ما يزال', 'قبل التكييف', 'هل كان', 'هل وقع',
-        'still material', 'still to resolve', 'before a final classification',
-    )
     answer_shaped = (
         message_n.startswith('نعم') or message_n.startswith('لا ') or ' لم ' in f' {message_n} '
         or ' من غير ' in f' {message_n} ' or '\n' in message
     )
-    return any(_n(x) in assistant_n for x in clarification_language) and answer_shaped
+    return any(_n(x) in assistant_n for x in _CLARIFICATION_LANGUAGE) and answer_shaped
 
 
 def _looks_like_followup_detail(message: str, route: RouteResult, last_assistant: str = '') -> bool:
@@ -157,6 +174,11 @@ def _looks_like_followup_detail(message: str, route: RouteResult, last_assistant
         return True
     if any(_n(x) in n for x in detail_markers):
         return True
+    # A short, lexically-unrecognized message is only weak evidence of "same case" when the
+    # assistant actually asked something. Otherwise a brand-new short case (a different theft,
+    # a different family matter) after a completed answer would silently inherit old facts.
+    if not _last_assistant_asked_something(last_assistant):
+        return False
     if len(tokens) <= 14 and not any(x in n for x in ('شو', 'كيف', 'كم', 'هل', 'ما هي', 'ما هو', 'ليش', 'لماذا', 'what', 'how', 'why')):
         if re.search(r'\d', message) or route.primary_domain == 'general' or route.confidence < 0.55:
             return True

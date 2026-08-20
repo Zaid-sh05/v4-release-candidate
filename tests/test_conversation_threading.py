@@ -111,6 +111,39 @@ def test_cyber_primary_domain_cannot_be_displaced_by_generic_criminal_article():
     assert [s.id for s in guarded] == ["cyber18"]
 
 
+def test_short_new_case_after_completed_answer_does_not_inherit_prior_case():
+    # Real production defect: a short, dialect-heavy new case (no legal keywords the
+    # lightweight router recognizes) following a COMPLETED prior answer was silently
+    # merged into that unrelated prior case, because the router's low-confidence/general
+    # classification was (wrongly) treated as evidence of being a followup to it. The
+    # fallback must require that the assistant actually asked something.
+    labor_case = "فصلني صاحب العمل من شغلي بدون سبب واضح وبدون انذار مسبق وانا موظف عنده من ثلاث سنين"
+    history = [
+        {"role": "user", "content": labor_case},
+        {"role": "assistant", "content": "يمكن أن يشكل هذا فصلاً تعسفياً بحسب قانون العمل."},
+    ]
+    for new_case in ("سرق مني حدا موبايلي", "بنتي تعبانة ونفقتها علي"):
+        route = analyze_query(new_case, "ar")
+        effective, used = contextualize_message(new_case, history, route)
+        assert used is False, f"{new_case!r} wrongly inherited the prior labor case: {effective!r}"
+        assert effective == new_case
+
+
+def test_short_answer_to_an_actual_clarifying_question_still_merges():
+    # The fallback above must not become so strict that it breaks the real use case:
+    # a short, lexically-unrecognized answer to a genuine open clarifying question.
+    labor_case = "فصلني صاحب العمل من شغلي بدون سبب واضح"
+    history = [
+        {"role": "user", "content": labor_case},
+        {"role": "assistant", "content": "قبل تحديد التكييف: هل كان الفصل بسبب ضعف الأداء؟ متى صار ذلك؟"},
+    ]
+    followup = "مش بسبب ضعف الاداء، صار الشهر الماضي"
+    route = analyze_query(followup, "ar")
+    effective, used = contextualize_message(followup, history, route)
+    assert used is True
+    assert labor_case in effective
+
+
 def test_garbled_source_is_removed_even_when_domain_is_correct():
     route = analyze_query("كنت بسوق وصار حادث وانا لا احمل رخصة", "ar")
     bad = SourceItem(
