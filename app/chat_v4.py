@@ -5,6 +5,7 @@ from __future__ import annotations
 # routing/retrieval hooks makes the live API use V4 cognition safeguards without duplicating
 # the whole chat stack.
 from . import chat as _legacy_chat
+from .lawyer_case_analysis import generate_lawyer_case_analysis_answer
 from .routing_guard import apply_case_route, route_query
 from .source_quality import looks_garbled_legal_text
 from .text import normalize_ar
@@ -129,6 +130,7 @@ class _GuardedSupabaseStore:
 
 _legacy_chat.analyze_query = route_query
 _legacy_chat._apply_cognition_to_route = apply_case_route
+_legacy_chat.generate_case_analysis_answer = generate_lawyer_case_analysis_answer
 _legacy_chat.retrieval_fallback = _v4_retrieval_fallback
 _legacy_chat.repository = _GuardedRepository(_legacy_chat.repository)
 _legacy_chat.supabase_store = _GuardedSupabaseStore(_legacy_chat.supabase_store)
