@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -58,6 +59,68 @@ SESSION.headers.update({
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document;q=0.9,*/*;q=0.8",
 })
 
+# Labels/URLs matching any of these keyword groups get called out explicitly, regardless of
+# how many total candidates a page has — a raw sample can silently omit a match past its cap.
+TARGET_LAW_KEYWORDS = {
+    "Civil Code": ("القانون المدني", "قانون مدني"),
+    "Evidence Law": ("قانون البينات", "البينات"),
+    "Criminal Procedure": ("أصول المحاكمات الجزائية", "المحاكمات الجزائية"),
+    "Civil Procedure": ("أصول المحاكمات المدنية", "المحاكمات المدنية"),
+    "Penal Code (base, not amendment)": ("قانون العقوبات",),
+}
+
+
+def _retry_get(url: str, *, attempts: int = 3, **kwargs):
+    """Retry with short backoff so a persistent block is distinguishable from a transient blip."""
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return SESSION.get(url, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - reporting the raw exception is the point here
+            last_exc = exc
+            print(f"    attempt {attempt}/{attempts} failed: {type(exc).__name__}: {exc}")
+            if attempt < attempts:
+                time.sleep(2 * attempt)
+    raise last_exc
+
+
+def _flag_target_law_matches(candidates: list[tuple[str, str]], base_url: str) -> None:
+    flagged = False
+    for law, keywords in TARGET_LAW_KEYWORDS.items():
+        matches = [
+            (href, label) for href, label in candidates
+            if any(k in href or k in label for k in keywords)
+            and "معدل" not in href and "معدل" not in label  # exclude amendment laws
+        ]
+        if matches:
+            flagged = True
+            print(f"  *** TARGET LAW MATCH: {law} ***")
+            for href, label in matches:
+                absolute = urljoin(base_url, href)
+                print(f"      [{'OK' if safe_url(absolute) else 'OUT-OF-ALLOWLIST'}] {absolute}")
+                print(f"          label: {label!r}")
+    if not flagged:
+        print(f"  (no target-law keyword match among all {len(candidates)} candidates on this page)")
+
+
+def probe_sitemap_and_robots(seed_url: str) -> None:
+    """For JS-shell pages, check whether robots.txt/sitemap.xml exposes real content URLs that
+    bypass the client-rendered shell entirely — the lightest possible fix, tried before any
+    browser-automation dependency."""
+    parsed = urlparse(seed_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    for path in ("/robots.txt", "/sitemap.xml", "/sitemap_index.xml"):
+        url = origin + path
+        try:
+            r = SESSION.get(url, timeout=15)
+        except Exception as exc:
+            print(f"  {path}: REQUEST FAILED: {type(exc).__name__}: {exc}")
+            continue
+        print(f"  {path}: status={r.status_code} content-length={len(r.content)}")
+        if r.status_code == 200 and r.content:
+            sample = r.text[:500].replace("\n", " ")
+            print(f"      sample: {sample!r}")
+
 
 def diagnose_source(source_id: str) -> None:
     sources = {s["id"]: s for s in repository.source_registry()}
@@ -77,12 +140,16 @@ def diagnose_source(source_id: str) -> None:
         return
 
     try:
-        r = SESSION.get(source["url"], timeout=settings.sync_timeout_seconds, allow_redirects=True)
+        r = _retry_get(source["url"], timeout=settings.sync_timeout_seconds, allow_redirects=True)
     except Exception as exc:
-        print(f"  REQUEST FAILED: {type(exc).__name__}: {exc}")
-        print("  -> network-level failure (timeout, DNS, TLS, connection refused). This alone")
-        print("     fully explains a source with zero recorded events: sync_source() never")
-        print("     reaches its while-loop body's try block far enough to call record().")
+        print(f"  REQUEST FAILED after retries: {type(exc).__name__}: {exc}")
+        print("  -> persistent network-level failure (timeout, DNS, TLS, connection refused),")
+        print("     not a one-off blip. This alone fully explains a source with zero recorded")
+        print("     events: sync_source() never reaches its while-loop body's try block far")
+        print("     enough to call record(). Probing robots.txt/sitemap.xml as a cheap secondary")
+        print("     signal (a reachable robots.txt on the same host would suggest this specific")
+        print("     path/endpoint is blocked rather than the whole host):")
+        probe_sitemap_and_robots(source["url"])
         return
 
     print(f"  final url after redirects: {r.url}")
@@ -113,6 +180,8 @@ def diagnose_source(source_id: str) -> None:
         if len(text) < 300:
             print("  -> very little visible text. If the real content is injected by JavaScript")
             print("     after page load, a plain requests.get() will only ever see this shell.")
+            print("     Probing robots.txt/sitemap.xml for a JS-bypass path:")
+            probe_sitemap_and_robots(r.url)
         print(f"  raw <a href> links found: {len(links)}")
         candidates = [(href, label) for href, label in links if candidate(href, label)]
         print(f"  links passing candidate() legal-hint filter: {len(candidates)}")
@@ -123,7 +192,9 @@ def diagnose_source(source_id: str) -> None:
             print("  -> links exist but NONE match LEGAL_HINTS keywords — candidate() filter may")
             print("     be too strict for this site's link text/URL structure, or this really is")
             print("     an unrelated page.")
-        print("  sample of candidate links (href -> label):")
+        _flag_target_law_matches(candidates, r.url)
+        print("  sample of candidate links (href -> label), first 25 of "
+              f"{len(candidates)}:")
         for href, label in candidates[:25]:
             absolute = urljoin(r.url, href)
             in_scope = safe_url(absolute)
@@ -140,10 +211,10 @@ def diagnose_url(url: str) -> None:
         print("  BLOCKED by safe_url() — host not in ALLOWED_HOSTS, or not http(s).")
         return
     try:
-        r = SESSION.get(url, timeout=settings.sync_timeout_seconds, allow_redirects=True)
+        r = _retry_get(url, timeout=settings.sync_timeout_seconds, allow_redirects=True)
         r.raise_for_status()
     except Exception as exc:
-        print(f"  REQUEST FAILED: {type(exc).__name__}: {exc}")
+        print(f"  REQUEST FAILED after retries: {type(exc).__name__}: {exc}")
         return
     if not safe_url(r.url):
         print(f"  REDIRECTED outside allowlist to {r.url!r}")
