@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+# Presentation-only extension over V4. The issue hypotheses come from cognition; this module only
+# explains them bilingually and gives a research checklist. It never supplies a legal article,
+# deadline, entitlement, offence, penalty, or final outcome without retrieved official authority.
+from . import lawyer_case_analysis as base
+from .lawyer_case_analysis_v4 import generate_lawyer_case_analysis_answer as v4_generate
+
+
+base._ISSUE_EN.update({
+    "labor.unpaid_wages": "possible unpaid wage/salary claim requiring proof of the employment terms and payment history",
+    "labor.overtime": "possible overtime-pay dispute requiring work-time and payment evidence",
+    "labor.leave_entitlement": "possible dispute over leave or unused leave balance",
+    "civil.contract_performance": "contract-performance/breach dispute requiring the exact obligations and performance history",
+    "civil.debt_claim": "debt/payment claim requiring proof of the debt, maturity and any payment",
+    "civil.compensation_damage": "possible non-traffic compensation claim requiring damage and causation proof",
+    "personal_status.divorce_path": "marital-termination/divorce path requiring the exact requested route and family facts",
+    "personal_status.maintenance": "possible maintenance/support claim requiring beneficiary, period and financial facts",
+    "personal_status.custody_access": "possible custody/contact/access dispute involving children",
+    "commercial.company_authority": "company representation/signature-authority issue requiring registry and authorization evidence",
+    "commercial.company_funds": "company-funds use/withdrawal dispute requiring accounting and authority evidence",
+    "commercial.shareholding_dispute": "share/ownership-interest dispute requiring registry and transfer records",
+    "cyber.blackmail_threat": "possible online blackmail/threat issue requiring preservation of digital evidence",
+    "cyber.account_intrusion": "possible unauthorized account/system access requiring technical and account evidence",
+    "cyber.private_data_misuse": "possible misuse/disclosure of private content or personal data requiring source and dissemination evidence",
+    "procedure.service_status": "service-of-process/judgment-service status that may materially affect procedure",
+    "procedure.appeal_deadline_material": "appeal/challenge deadline issue dependent on judgment type, service and the governing official rule",
+})
+
+base._SUPPORT_EN.update({
+    "labor.unpaid_wages": "the narrative says salary or wages were not fully paid",
+    "labor.overtime": "the narrative describes extra working hours and a dispute about payment for them",
+    "labor.leave_entitlement": "the narrative raises annual/sick leave or unused leave balance",
+    "civil.contract_performance": "the narrative identifies a contract/agreement and an alleged failure to perform",
+    "civil.debt_claim": "the narrative identifies money said to be owed as a debt, loan or financial obligation",
+    "civil.compensation_damage": "the narrative identifies non-traffic loss or damage for which compensation is sought",
+    "personal_status.divorce_path": "the narrative concerns divorce, separation, khula or another route to end the marital relationship",
+    "personal_status.maintenance": "the narrative alleges non-payment or a need for maintenance/support",
+    "personal_status.custody_access": "the narrative raises custody, contact, visitation or delivery of children",
+    "commercial.company_authority": "the narrative says someone acted or signed for a company while authority is disputed",
+    "commercial.company_funds": "the narrative concerns company money transferred or withdrawn for a related person's benefit",
+    "commercial.shareholding_dispute": "the narrative disputes shares, ownership interests or a transfer of them",
+    "cyber.blackmail_threat": "the narrative links an online threat or threatened publication to a demand for money or benefit",
+    "cyber.account_intrusion": "the narrative alleges unauthorized access or control over an online account/system",
+    "cyber.private_data_misuse": "the narrative involves private content or personal data in an online context",
+    "procedure.service_status": "the narrative disputes whether, when or how a judgment/document was formally served",
+    "procedure.appeal_deadline_material": "the narrative asks about or may depend on the time limit for an appeal/challenge",
+})
+
+base._RESEARCH_AR.update({
+    "labor.unpaid_wages": "تثبيت علاقة العمل والأجر والفترة غير المدفوعة ومراجعة كشوف الرواتب والتحويلات، ثم مطابقة النص الرسمي النافذ المتعلق بالأجر والمطالبة به.",
+    "labor.overtime": "حصر ساعات العمل الأصلية والإضافية وسجلات الحضور والتكليف والدفع، ثم بحث النص الرسمي المنطبق على العمل الإضافي بعد تثبيت الوقائع.",
+    "labor.leave_entitlement": "تحديد نوع الإجازة ومدة الخدمة والرصيد المستخدم/المتبقي وسجل الإجازات قبل بحث الاستحقاق أو البدل في النص الرسمي.",
+    "civil.contract_performance": "قراءة نص العقد والالتزام محل النزاع ومواعيد التنفيذ والمراسلات، ثم فصل ما تم تنفيذه عن الإخلال المدعى والضرر قبل بحث الأثر القانوني.",
+    "civil.debt_claim": "إثبات مصدر الدين وقيمته واستحقاقه وأي وفاء جزئي أو كلي بالمستندات/التحويلات/الإقرارات قبل بحث المطالبة القانونية.",
+    "civil.compensation_damage": "تثبيت الفعل والضرر وقيمته والرابطة السببية بتقارير/فواتير/خبرة، ثم بحث أساس التعويض في النص الرسمي المناسب.",
+    "personal_status.divorce_path": "تحديد نوع الطلب الأسري المقصود ووثائق الزواج والوقائع والأحكام السابقة والمسائل المرتبطة بالأولاد/المهر/النفقة قبل اختيار المسار الشرعي الرسمي.",
+    "personal_status.maintenance": "تحديد طالب النفقة والفترة والحكم السابق إن وجد والدخل والاحتياجات المثبتة، ثم بحث القواعد الرسمية المنطبقة دون افتراض مبلغ أو استحقاق مسبقاً.",
+    "personal_status.custody_access": "تثبيت أعمار الأطفال ووضع الحضانة الحالي وأي حكم سابق وواقعة المنع/التسليم المحددة، ثم بحث الإجراء والقواعد الرسمية المناسبة.",
+    "commercial.company_authority": "استخراج نوع الشركة والسجل والمفوضين بالتوقيع وقت التصرف وحدود التفويض، ثم مقارنة العقد/التصرف مع الوثائق الرسمية للشركة.",
+    "commercial.company_funds": "تتبع العملية البنكية/المحاسبية وصفة من أجراها وصلاحياته وسببها وقرارها المؤيد قبل بحث مسؤوليات الشركة/الإدارة أو أي مسار آخر.",
+    "commercial.shareholding_dispute": "مقارنة سجل الشركاء/المساهمين قبل وبعد التصرف مع عقد التنازل/القرار والتعديلات المسجلة لتحديد نقطة النزاع القانونية بدقة.",
+    "cyber.blackmail_threat": "حفظ الرسائل الأصلية وبيانات الحساب والتوقيت والنص الدقيق للتهديد/الطلب وأي تحويل، ثم مطابقة النص الرسمي للجرائم الإلكترونية/الجزائية بعد توثيق الدليل.",
+    "cyber.account_intrusion": "حفظ سجلات الدخول والتنبيهات ورسائل تغيير كلمة المرور وتحديد الأفعال داخل الحساب، ثم بحث النص الإلكتروني الرسمي بعد فصل الاختراق عن مجرد فقدان كلمة مرور أو نزاع حساب.",
+    "cyber.private_data_misuse": "تحديد نوع البيانات ومصدر الحصول عليها وهل نُشرت أو أُرسلت ولمن، مع حفظ الروابط/اللقطات/الرسائل الأصلية قبل بحث النص الرسمي المتعلق بالخصوصية أو الجرائم الإلكترونية.",
+    "procedure.service_status": "الحصول على ورقة التبليغ الرسمية وتحديد نوع الحكم وتاريخ وطريقة ومكان التبليغ وصفة المستلم قبل ترتيب أي أثر على المواعيد أو الإجراءات.",
+    "procedure.appeal_deadline_material": "تحديد المحكمة ونوع القضية ووصف الحكم وتاريخ الصدور/التبليغ، ثم استخراج المدة وبداية احتسابها من النص الرسمي النافذ؛ لا تُفترض مدة من كلمات السؤال وحدها.",
+})
+
+base._RESEARCH_EN.update({
+    "labor.unpaid_wages": "establish the employment relationship, wage rate, unpaid period and payroll/bank evidence before matching the current official wage provisions",
+    "labor.overtime": "reconstruct normal and extra hours from attendance/instructions/payment records before researching the official overtime rules",
+    "labor.leave_entitlement": "identify the leave type, service period and used/unused balance before researching any entitlement or cash substitute",
+    "civil.contract_performance": "read the exact contract obligations, deadlines, performance and notices before researching consequences of any proven breach",
+    "civil.debt_claim": "prove the source, amount and maturity of the debt plus any partial/full payment before researching the legal claim",
+    "civil.compensation_damage": "prove the act, loss, valuation and causation through reports/invoices/expert evidence before researching compensation",
+    "personal_status.divorce_path": "identify the precise requested family-law route, marriage documents, relevant facts, earlier orders and linked child/financial issues before selecting the official legal path",
+    "personal_status.maintenance": "identify the claimant/beneficiary, period, earlier orders, income and evidenced needs before researching official maintenance rules",
+    "personal_status.custody_access": "establish the children's ages/current care, earlier custody/contact orders and the specific denial/delivery event before researching procedure and substantive rules",
+    "commercial.company_authority": "verify company type, registry, authorized signatories and authority limits at the relevant time before assessing the transaction",
+    "commercial.company_funds": "trace the bank/accounting transaction, actor authority, purpose and supporting corporate decision before researching company-management consequences",
+    "commercial.shareholding_dispute": "compare the shareholder/partner registry before and after the transaction with transfer documents and registered amendments",
+    "cyber.blackmail_threat": "preserve original messages, account identifiers, timestamps, exact threat/demand and any transfer before matching official cyber/criminal provisions",
+    "cyber.account_intrusion": "preserve login logs, alerts and password-change evidence and identify post-access actions before matching official cyber provisions",
+    "cyber.private_data_misuse": "identify the data/content, source, whether it was actually disseminated and to whom, while preserving original digital evidence before legal matching",
+    "procedure.service_status": "obtain the official service record and establish judgment type, date, method, place and recipient status before deriving procedural consequences",
+    "procedure.appeal_deadline_material": "establish court, case type, judgment procedural status, issue/service dates and then derive the deadline only from the current official rule",
+})
+
+base._MISSING_EN.update({
+    "الفترة التي لم يُدفع عنها الأجر": "the period for which wages/salary were allegedly unpaid",
+    "مقدار الأجر المتفق عليه وطريقة إثباته": "the agreed wage/salary and how it is evidenced",
+    "كشوف الرواتب/التحويلات البنكية أو أي إيصالات": "payroll records, bank transfers or receipts",
+    "هل انتهت علاقة العمل أم ما زالت قائمة؟": "whether employment has ended or remains ongoing",
+    "ساعات العمل الأصلية والمتفق عليها": "the agreed normal working hours",
+    "عدد وتواريخ ساعات العمل الإضافية": "the number and dates of alleged overtime hours",
+    "سجلات الحضور/المغادرة أو الرسائل أو التكليفات": "attendance/departure records, messages or work instructions",
+    "هل دُفع أي بدل عن تلك الساعات؟": "whether any overtime amount was paid",
+    "نوع الإجازة محل النزاع": "the type of leave in dispute",
+    "مدة الخدمة والسنة/الفترة ذات الصلة": "length of service and the relevant year/period",
+    "سجل الإجازات الموافق عليها والمستخدمة": "approved and used leave records",
+    "هل النزاع عن منح الإجازة أم بدلها عند انتهاء العمل؟": "whether the dispute is about taking leave or payment for unused leave at termination",
+    "نسخة العقد وشروط الالتزام محل النزاع": "the contract and the exact obligation in dispute",
+    "ما الذي نفذه كل طرف وما الذي بقي دون تنفيذ؟": "what each side performed and what allegedly remained unperformed",
+    "مواعيد الاستحقاق/التسليم وأي إنذارات أو مراسلات": "due/delivery dates and notices/correspondence",
+    "الضرر أو المبلغ المطالب به وكيف تم احتسابه": "the claimed loss/amount and how it was calculated",
+    "مصدر الدين وتاريخ نشوئه": "the source of the debt and when it arose",
+    "قيمة الدين وما تم دفعه إن وجد": "the debt amount and any payment made",
+    "المستندات/التحويلات/الإقرارات أو الشهود المؤيدون": "documents, transfers, admissions or witnesses supporting the debt",
+    "تاريخ الاستحقاق وأي مطالبة أو إنذار سابق": "maturity date and any earlier demand/notice",
+    "حالة الزواج والوثائق المتاحة": "marital status and available marriage documents",
+    "نوع الطلب المقصود وسبب اللجوء إليه": "the exact requested divorce/separation route and stated basis",
+    "هل توجد دعاوى أو أحكام سابقة بين الطرفين؟": "whether earlier cases/orders exist between the spouses",
+    "هل توجد مسائل مرتبطة بالمهر أو النفقة أو الأولاد؟": "whether dowry, maintenance or child issues are also involved",
+    "من هو طالب النفقة ومن هو الملزم المدعى عليه؟": "who seeks maintenance and who is alleged to owe it",
+    "الفترة المطلوب عنها النفقة": "the maintenance period claimed",
+    "وجود حكم نفقة سابق من عدمه": "whether a prior maintenance order exists",
+    "الدخل والاحتياجات والمصاريف التي يمكن إثباتها": "provable income, needs and expenses",
+    "أعمار الأطفال ووضعهم الحالي": "the children's ages and current situation",
+    "هل يوجد حكم حضانة/مشاهدة/استزارة سابق؟": "whether an earlier custody/contact/access order exists",
+    "مكان إقامة الأطفال ومن يقوم برعايتهم فعلياً": "where the children live and who actually cares for them",
+    "الواقعة المحددة محل النزاع وأي محاضر أو رسائل مرتبطة بها": "the specific disputed child-related event and related records/messages",
+    "نوع الشركة وسجلها الحالي": "the company type and current registry",
+    "صفة الشخص الذي وقع أو تصرف باسمها": "the status/role of the person who acted or signed for the company",
+    "المفوضون بالتوقيع وحدود التفويض وقت التصرف": "authorized signatories and authority limits at the relevant time",
+    "العقد/القرار/محضر الهيئة أو السجل الذي يثبت الصلاحية": "the contract, decision, minutes or registry evidence of authority",
+    "النص الدقيق للتهديد أو طلب المنفعة": "the exact wording of the threat or benefit demand",
+    "الحساب/الرقم/المنصة المستخدمة وهوية صاحبها إن كانت معروفة": "the account, number, platform and known account-holder identity",
+    "الرسائل الأصلية وبياناتها الزمنية وأي نسخ احتياطية": "original messages, timestamps/metadata and backups",
+    "هل تم دفع مبلغ أو إرسال محتوى أو تنفيذ أي جزء من الطلب؟": "whether money/content was sent or any part of the demand was performed",
+    "الحساب/النظام الذي تم الدخول إليه": "the account/system allegedly accessed",
+    "كيفية اكتشاف الدخول غير المصرح به": "how the alleged unauthorized access was discovered",
+    "سجلات الدخول والتنبيهات ورسائل تغيير كلمة المرور": "login logs, alerts and password-change messages",
+    "الأفعال التي حصلت داخل الحساب بعد الدخول": "actions taken inside the account after access",
+    "نوع الحكم/القرار والجهة التي أصدرته": "the judgment/decision type and issuing authority",
+    "تاريخ وطريقة ومكان التبليغ المدعى به": "the alleged date, method and place of service",
+    "من استلم التبليغ وما الصفة المثبتة في ورقة التبليغ": "who received service and the status recorded on the service document",
+    "نسخة ورقة التبليغ أو بياناتها الرسمية": "the official service document or its official details",
+    "نوع القضية والمحكمة ودرجة الحكم": "case type, court and level of judgment",
+    "وصف الحكم: وجاهي/غيابي/بمثابة الوجاهي أو الوصف الإجرائي المقابل": "the judgment's procedural status (in-person/default/equivalent classification)",
+    "تاريخ الصدور وتاريخ التبليغ إن وجد": "issue date and service date, if any",
+    "النص الرسمي النافذ الذي يحدد المدة وبداية احتسابها": "the current official text defining the time limit and its starting point",
+})
+
+
+def generate_lawyer_case_analysis_answer(message, route, case, sources):
+    return v4_generate(message, route, case, sources)
+
+
+__all__ = ["generate_lawyer_case_analysis_answer"]
