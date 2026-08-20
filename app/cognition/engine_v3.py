@@ -6,7 +6,7 @@ from .decision_gate import decide_next_action
 from .engine_v21 import CaseCognitionEngine as BaseCaseCognitionEngine
 from .issue_spotter_v4 import spot_issues
 from .retrieval_planner import build_retrieval_queries
-from .scenario_sanity import apply_scenario_sanity
+from .scenario_sanity_v4 import apply_scenario_sanity
 
 
 class CaseCognitionEngine(BaseCaseCognitionEngine):
