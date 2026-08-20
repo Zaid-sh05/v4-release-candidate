@@ -51,6 +51,51 @@ def test_new_traffic_case_does_not_inherit_previous_cyber_case():
     assert cyber not in effective
 
 
+def test_explicit_return_to_earlier_topic_reactivates_that_specific_case():
+    # "نرجع لموضوع الفصل التعسفي" shares no vocabulary with the original labor narrative, and
+    # a more recent unrelated traffic case sits in between - the reactivation must find the
+    # LABOR case specifically, not just re-attach the most recent turn.
+    labor_first = "فصلني صاحب العمل من شغلي بدون سبب واضح وبدون انذار مسبق"
+    history = [
+        {"role": "user", "content": labor_first},
+        {"role": "assistant", "content": "يمكن أن يشكل هذا فصلاً تعسفياً بحسب قانون العمل."},
+        {"role": "user", "content": "كنت بسوق وصار حادث سيارة وانا لا احمل رخصة"},
+        {"role": "assistant", "content": "قد تنطبق أحكام قانون السير على هذه الواقعة."},
+    ]
+    message = "نرجع لموضوع الفصل التعسفي"
+    route = analyze_query(message, "ar")
+    effective, used = contextualize_message(message, history, route)
+
+    assert used is True
+    assert labor_first in effective
+    assert "حادث سيارة" not in effective
+
+
+def test_strong_clarification_answer_overrides_a_misfiring_topic_switch():
+    # Real gap: a concept-level answer to an actual clarifying question ("did the owner
+    # consent?" -> "the owner did not consent at all") was rejected because the lightweight
+    # router misclassified the reply as personal_status (incidental "consent" vocabulary
+    # overlap with marriage-consent keywords), and the coarse topic-switch heuristic ran
+    # before the more precise clarification-answer check got a chance to override it.
+    burglary = (
+        "قام أحمد بالدخول إلى منزل جاره خالد أثناء غيابه، بعد أن كسر قفل الباب الخارجي. "
+        "أخذ جهاز حاسوب محمول."
+    )
+    history = [
+        {"role": "user", "content": burglary},
+        {
+            "role": "assistant",
+            "content": "هذا يشكل جريمة جزائية بحسب قانون العقوبات، ويلزم فحص ظروف الدخول قبل التكييف النهائي.",
+        },
+    ]
+    followup = "المالك لم يوافق على الدخول اطلاقا"
+    route = analyze_query(followup, "ar")
+    effective, used = contextualize_message(followup, history, route)
+
+    assert used is True
+    assert burglary in effective
+
+
 def test_explicit_domain_correction_keeps_same_case_context():
     cyber_story = (
         "قام احمد بتهديد سارة بأنه سوف ينشر صور سارة على مواقع التواصل الاجتماعي بغير اذنها "
