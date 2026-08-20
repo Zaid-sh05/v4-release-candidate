@@ -21,6 +21,10 @@ class CaseCognitionEngine(BaseCaseCognitionEngine):
 
     def analyze(self, message: str, language: str = "ar"):
         case = super().analyze(message, language)
+        prior_decision = case.decision
+        preserve_short_ambiguous = bool(
+            prior_decision and "short_ambiguous_prompt" in getattr(prior_decision, "blockers", [])
+        )
 
         if apply_scenario_sanity(case):
             signal_codes = {signal.code for signal in case.semantic_signals}
@@ -32,6 +36,8 @@ class CaseCognitionEngine(BaseCaseCognitionEngine):
             case.clarifying_questions = choose_questions(case)
             case.retrieval_queries = build_retrieval_queries(case)
             case.decision = decide_next_action(case)
+            if preserve_short_ambiguous:
+                case.decision = prior_decision
             case.graph = build_case_graph(case)
 
         return case
