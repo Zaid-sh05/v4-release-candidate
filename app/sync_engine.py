@@ -11,12 +11,14 @@ from .document_classifier import classify_document
 from .legal_update_guard import legal_update_ledger
 from .supabase_store import supabase_store
 from .text import pretty_title
+from .arabic_text_quality import looks_like_reversed_arabic_reading_order
 
 ALLOWED_HOSTS={
  'pm.gov.jo','www.pm.gov.jo','moj.gov.jo','www.moj.gov.jo','sjd.gov.jo','www.sjd.gov.jo',
  'mol.gov.jo','www.mol.gov.jo','psd.gov.jo','www.psd.gov.jo','ccd.gov.jo','www.ccd.gov.jo',
  'modee.gov.jo','www.modee.gov.jo','lob.gov.jo','www.lob.gov.jo',
- 'moh.gov.jo','www.moh.gov.jo','mosd.gov.jo','www.mosd.gov.jo','mola.gov.jo','www.mola.gov.jo'
+ 'moh.gov.jo','www.moh.gov.jo','mosd.gov.jo','www.mosd.gov.jo','mola.gov.jo','www.mola.gov.jo',
+ 'jiacc.gov.jo','www.jiacc.gov.jo',
 }
 LEGAL_HINTS=('قانون','قوانين','نظام','أنظمة','انظمة','تعليمات','تشريع','التشريعات','law','regulation','.pdf','.docx')
 
@@ -39,6 +41,44 @@ def pdf_text(data:bytes)->str:
             try: out.append(p.extract_text() or '')
             except Exception: pass
     return '\n'.join(out)
+
+def pdfplumber_text(data:bytes)->str:
+    import pdfplumber
+    out=[]
+    with pdfplumber.open(io.BytesIO(data)) as pdf:
+        for page in pdf.pages:
+            out.append(page.extract_text() or '')
+    return '\n'.join(out)
+
+def _article_count(text:str)->int:
+    return sum(1 for article,_ in split_articles(text) if article is not None)
+
+def choose_pdf_extraction(primary_text:str,fallback_text:str|None)->str:
+    """Pick between a primary extraction and a fallback, conservatively.
+
+    Only switches away from the primary when it shows zero detected articles AND looks like
+    the specific reversed-Arabic-reading-order failure (see app.arabic_text_quality) -- not
+    just "this document happens to have no articles", e.g. a cover page or an FAQ -- and only
+    when the fallback actually finds real article structure the primary didn't. This never
+    downgrades a primary extraction that is already working.
+    """
+    primary_articles=_article_count(primary_text)
+    if primary_articles>0 or fallback_text is None:
+        return primary_text
+    if not looks_like_reversed_arabic_reading_order(primary_text):
+        return primary_text
+    fallback_articles=_article_count(fallback_text)
+    return fallback_text if fallback_articles>primary_articles else primary_text
+
+def pdf_text_with_fallback(data:bytes)->str:
+    primary=pdf_text(data)
+    if _article_count(primary)>0 or not looks_like_reversed_arabic_reading_order(primary):
+        return primary
+    try:
+        fallback=pdfplumber_text(data)
+    except Exception:
+        return primary
+    return choose_pdf_extraction(primary,fallback)
 
 def docx_text(data:bytes)->str:
     with zipfile.ZipFile(io.BytesIO(data)) as z: xml=z.read('word/document.xml')
@@ -92,7 +132,7 @@ def sync_source(source_id:str,max_docs:int|None=None):
             r=session.get(url,timeout=settings.sync_timeout_seconds,allow_redirects=True); r.raise_for_status(); ctype=(r.headers.get('content-type') or '').lower(); links=[]
             if not safe_url(r.url):
                 raise ValueError('Redirected outside the official allowlist.')
-            if is_pdf(r.content): raw_title=urlparse(r.url).path.rsplit('/',1)[-1]; text=pdf_text(r.content)
+            if is_pdf(r.content): raw_title=urlparse(r.url).path.rsplit('/',1)[-1]; text=pdf_text_with_fallback(r.content)
             elif is_docx(r.content): raw_title=urlparse(r.url).path.rsplit('/',1)[-1]; text=docx_text(r.content)
             elif 'html' in ctype or r.content.lstrip().startswith((b'<!DOCTYPE',b'<html',b'<HTML')):
                 r.encoding=r.apparent_encoding or r.encoding; raw_title,text,links=clean_html(r.text)
