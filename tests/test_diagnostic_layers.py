@@ -117,6 +117,39 @@ def test_issue_mapping_classifies_theft_case_without_retrieval():
     assert 'criminal.theft' in codes or 'criminal.aggravating_entry' in codes
 
 
+def test_issue_mapping_routes_marital_interference_paraphrases_to_criminal_domain():
+    # Production regression: "ما حكم افساد علاقة زوجية؟" and its colloquial paraphrases fell
+    # through every domain guard to primary_domain='general', which meant every candidate the
+    # retriever actually found (Penal Code arts. 282/284 on inciting/interfering in a marriage)
+    # was rejected downstream as 'wrong_domain' -- an ISSUE_MAPPING_FAILURE, not a corpus gap or
+    # a retrieval-ranking problem (the articles were always in the corpus and always came back
+    # as raw candidates; the domain gate is what discarded them). Covers the exact reported
+    # query plus paraphrases using different verbs (افساد/تخريب/تحريض/تدخل) for the same conduct,
+    # so the fix generalizes rather than matching one literal phrase.
+    from app.routing_guard import route_query
+    for text in (
+        'ما حكم افساد علاقة زوجية ؟',
+        'افسد علاقتها بزوجها',
+        'شخص يحاول يخرب بين زوج وزوجته',
+        'حرضها تترك زوجها',
+        'تدخل بين زوجين حتى تنفصل عنه',
+    ):
+        route = route_query(text, 'ar')
+        assert route.primary_domain == 'criminal', f'{text!r} -> {route.primary_domain!r}'
+        assert 'personal_status' in route.domains, f'{text!r} -> {route.domains!r}'
+
+
+def test_e2e_marital_interference_query_cites_the_adultery_incitement_article():
+    trace = RequestTrace()
+    resp = handle_chat(ChatRequest(message='ما حكم افساد علاقة زوجية ؟', language='ar'), trace=trace)
+    assert trace.primary_domain == 'criminal'
+    _assert_no_failure(
+        trace,
+        FailureExpectation(expected_primary_domain='criminal', expected_article='282'),
+        resp.answer,
+    )
+
+
 def test_issue_mapping_distinguishes_cyber_threat_from_property_crime():
     # The deterministic cognition engine's own hypothesis vocabulary does not yet cover the
     # image-disclosure-threat family (a known, documented gap -- see app/routing_guard.py's
