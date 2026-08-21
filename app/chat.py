@@ -9,6 +9,7 @@ from .llm import embed_query, generate_answer
 from .models import ChatRequest, ChatResponse, RouteResult, SourceItem
 from .repository import repository
 from .router import DOMAIN_LABELS, analyze_query
+from .routing_guard import issue_signature
 from .runtime_store import runtime_store
 from .supabase_store import supabase_store
 from .text import looks_garbled_text, normalize_ar, strip_emoji_style
@@ -55,12 +56,46 @@ def _source_is_usable(source:SourceItem)->bool:
     )
 
 
+def _source_issue_compatible(query_signature:frozenset,source:SourceItem)->bool:
+    """Reject a candidate that clearly belongs to a different legal-issue family than the query.
+
+    Domain compatibility alone is not enough: an adultery article and a theft article are both
+    domain=criminal, and Public Security Law / Associations Law both land in the miscellaneous
+    domain=general bucket. This checks the issue family, not just the domain label.
+
+    Two independent lines of defense, since the coarse issue vocabulary can never cover every
+    legal topic and must not over-reject sources it simply has no vocabulary for:
+    - domain='general' is treated as a genuine miscellaneous bucket -- once the query itself
+      shows ANY positive issue signal, general-domain content is presumptively irrelevant to it,
+      regardless of whether that specific source's own text happens to be silent or not.
+    - within a domain, a source is only rejected on a DETECTED CONFLICT (its own text hits a
+      *different* issue family than the query, with zero overlap) -- a source whose text is
+      silent on every tracked family is kept rather than rejected, since silence is not evidence
+      of irrelevance for the many legal topics this coarse vocabulary does not enumerate. A
+      whole-document candidate (no specific article number) may still serve as a general
+      legal-basis anchor even when its own excerpt does not lexically overlap.
+    """
+    if not query_signature:
+        return True
+    if source.domain=='general':
+        return False
+    if not source.article:
+        return True
+    source_signature=issue_signature(f'{source.title or ""} {source.excerpt or ""}')
+    if not source_signature:
+        return True
+    return bool(query_signature & source_signature)
+
+
 def _guard_sources(route:RouteResult,sources:list[SourceItem])->list[SourceItem]:
-    """Keep only readable sources that belong to the active legal route."""
+    """Keep only readable sources that belong to the active legal route AND issue family."""
     allowed=set(route.domains or [route.primary_domain])
+    query_signature=issue_signature(route.normalized_text or '')
     cleaned=[]; seen=set()
     for source in sources:
         if source.id in seen or source.domain not in allowed or not _source_is_usable(source):
+            continue
+        if not _source_issue_compatible(query_signature,source):
             continue
         seen.add(source.id); cleaned.append(source)
 

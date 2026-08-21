@@ -157,6 +157,107 @@ def _digital_medium_context(text: str) -> bool:
     return False
 
 
+_IMAGE_OR_MEDIA_TERMS = (
+    "صور", "صورة", "صوره", "فيديو", "مقطع", "مقاطع", "مواد",
+    # Common possessive-suffixed forms ("my/her/your photos"): _has()/contains_fuzzy() match
+    # whole tokens and do not strip noun possessive suffixes (only a few verb-object suffixes
+    # and prefixes are handled), so "صوري" never reduces to "صور" on its own. Someone describing
+    # a threat to expose THEIR OWN photos is an extremely common, natural phrasing.
+    "صوري", "صورها", "صورك", "صورتي", "صورته", "صورتها", "صورتك",
+    "photos", "photo", "pictures", "images", "video", "videos", "clips",
+)
+_DISCLOSURE_VERB_TERMS = (
+    "نشر", "ينشر", "تنشر", "بنشر", "فضح", "يفضح", "تفضح", "تسريب", "يسرب", "تسرب", "سرب",
+    "publish", "leak", "leaked", "expose", "share", "shares",
+)
+_PRIVATE_CONTENT_QUALIFIER_TERMS = (
+    "عارية", "عاريه", "عاري", "فاضحة", "فاضحه", "خاصة", "خاصه", "حميمية", "حميميه",
+    "شخصية", "شخصيه", "خصوصية", "خصوصيه",
+    "private", "nude", "naked", "intimate", "explicit", "personal",
+)
+
+
+def _image_disclosure_threat_context(text: str) -> bool:
+    """Recognize "threatens to expose private images/content" independently of the medium.
+
+    A threat to publish someone's intimate/private photos or material is the legally
+    determinative conduct here -- the electronic-extortion family this maps to does not
+    turn on which specific app carried the threat, or whether that app is even named at
+    all. Gating cyber routing on a closed platform-name list (or even the "unnamed medium"
+    grammatical detector, which only recognizes generic nouns like "app"/"platform") misses
+    a named-but-unlisted platform (e.g. Telegram) used without a generic noun alongside it,
+    and misses cases where no medium is mentioned at all. This checks the conduct directly.
+    """
+    has_media = _has(text, *_IMAGE_OR_MEDIA_TERMS) or contains_fuzzy(text, *_IMAGE_OR_MEDIA_TERMS)
+    if not has_media:
+        return False
+    has_disclosure_verb = _has(text, *_DISCLOSURE_VERB_TERMS) or contains_fuzzy(text, *_DISCLOSURE_VERB_TERMS)
+    has_private_qualifier = _has(text, *_PRIVATE_CONTENT_QUALIFIER_TERMS) or contains_fuzzy(text, *_PRIVATE_CONTENT_QUALIFIER_TERMS)
+    return has_disclosure_verb or has_private_qualifier
+
+
+_PERSONAL_TERMS = (
+    "طلاق", "أطلق", "اطلق", "خلع", "نفقة", "حضانة", "زواج", "مطلقة", "طليقي", "محكمة شرعية",
+    "اشوف ولادي", "يشوف ولاده", "رؤية الأولاد", "رؤية الاولاد", "مشاهدة الأولاد", "مشاهدة الاولاد",
+    "divorce", "custody", "alimony", "visitation",
+)
+_LABOR_TERMS = ("فصلني", "طردني", "الفصل", "سبب الفصل", "صاحب العمل", "عقد عمل", "الشغل", "راتب", "اجر", "إنذار مكتوب", "انذار مكتوب", "ضعف الاداء", "employer", "fired", "dismissed")
+_CYBER_TERMS = (
+    "واتساب", "انستغرام", "فيسبوك", "ابتزاز", "ابتزني", "ببتزني", "يبتزني",
+    "اختراق", "تهكير", "whatsapp", "online blackmail", "cybercrime",
+)
+_THREAT_TERMS = (
+    "هدد", "هددني", "يهددني", "بهددني", "بتهددني", "تهديد",
+    "ابتزاز", "ابتزني", "ببتزني", "يبتزني", "مبتزني",
+    # English inflected forms: the fuzzy-match threshold does not bridge "threatened" -> "threat"
+    # (SequenceMatcher ratio ~0.75, below the 0.84 floor), so the conjugated forms are listed
+    # explicitly -- the same approach already used for the Arabic conjugations above.
+    "threat", "threatened", "threatens", "threatening", "blackmail", "blackmailed", "extortion",
+)
+_VIOLENCE_TERMS = ("قتل", "قتله", "اعتداء", "ضرب", "ضربني", "طعن", "هاجمني", "سلاح", "سرقة", "سرقت", "سرق", "murder", "assault", "theft")
+# A distinct family from violence/property crime: unrelated but still domain=criminal offense
+# families must not be treated as evidence for each other (e.g. an adultery article is not a
+# valid source for a theft query merely because both live under the Penal Code).
+_SEXUAL_OFFENSE_TERMS = (
+    "زنا", "الزاني", "الزانية", "زانية", "زان", "اغتصاب", "هتك عرض", "هتك العرض",
+    "فعل فاحش", "افعال فاحشة", "أفعال فاحشة", "فحشاء",
+    "adultery", "rape", "sexual assault", "indecent assault",
+)
+
+
+def _matches_terms(text: str, *phrases: str) -> bool:
+    return _has(text, *phrases) or contains_fuzzy(text, *phrases)
+
+
+def issue_signature(text: str) -> frozenset[str]:
+    """Which coarse legal-issue families are lexically present in this text.
+
+    Used for BOTH the active query/case text and a retrieval candidate's own title+excerpt,
+    so a candidate can be checked for issue-level compatibility with the query -- not just
+    domain membership. Domain membership alone is not enough: an adultery article and a theft
+    article are both domain=criminal but describe unrelated offense families, and this is the
+    shared vocabulary that lets that specific kind of mismatch be detected as a real conflict
+    rather than silently passed through.
+    """
+    signature: set[str] = set()
+    if _property_crime_context(text):
+        signature.add("property_crime")
+    if _traffic_context(text):
+        signature.add("traffic")
+    if _matches_terms(text, *_PERSONAL_TERMS):
+        signature.add("personal_status")
+    if _matches_terms(text, *_LABOR_TERMS):
+        signature.add("labor")
+    threat_hit = _matches_terms(text, *_THREAT_TERMS)
+    if _matches_terms(text, *_CYBER_TERMS) or (threat_hit and (_digital_medium_context(text) or _image_disclosure_threat_context(text))):
+        signature.add("cyber_threat")
+    if _matches_terms(text, *_VIOLENCE_TERMS):
+        signature.add("violence")
+    if _matches_terms(text, *_SEXUAL_OFFENSE_TERMS):
+        signature.add("sexual_offense")
+    return frozenset(signature)
+
+
 def _set_primary(route: RouteResult, primary: str, extras: list[str] | None = None, confidence: float = 0.9) -> RouteResult:
     domains = [primary]
     for domain in extras or []:
@@ -204,22 +305,11 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
 
     appeal = _has(text, "استئناف", "استأنف", "استانف", "تمييز", "طعن", "appeal", "cassation")
     complaint = _has(text, "شكوى", "المدعي العام", "مدعي عام", "نيابة عامة", "ادعاء عام", "complaint", "prosecutor")
-    personal_terms = (
-        "طلاق", "أطلق", "اطلق", "خلع", "نفقة", "حضانة", "زواج", "مطلقة", "طليقي", "محكمة شرعية",
-        "اشوف ولادي", "يشوف ولاده", "رؤية الأولاد", "رؤية الاولاد", "مشاهدة الأولاد", "مشاهدة الاولاد",
-        "divorce", "custody", "alimony", "visitation",
-    )
-    labor_terms = ("فصلني", "طردني", "الفصل", "سبب الفصل", "صاحب العمل", "عقد عمل", "الشغل", "راتب", "اجر", "إنذار مكتوب", "انذار مكتوب", "ضعف الاداء", "employer", "fired", "dismissed")
-    cyber_terms = (
-        "واتساب", "انستغرام", "فيسبوك", "ابتزاز", "ابتزني", "ببتزني", "يبتزني",
-        "اختراق", "تهكير", "whatsapp", "online blackmail", "cybercrime",
-    )
-    threat_terms = (
-        "هدد", "هددني", "يهددني", "بهددني", "بتهددني", "تهديد",
-        "ابتزاز", "ابتزني", "ببتزني", "يبتزني", "مبتزني",
-        "threat", "blackmail", "extortion",
-    )
-    violence_terms = ("قتل", "قتله", "اعتداء", "ضرب", "ضربني", "طعن", "هاجمني", "سلاح", "سرقة", "سرقت", "سرق", "murder", "assault", "theft")
+    personal_terms = _PERSONAL_TERMS
+    labor_terms = _LABOR_TERMS
+    cyber_terms = _CYBER_TERMS
+    threat_terms = _THREAT_TERMS
+    violence_terms = _VIOLENCE_TERMS
     taking_terms = ("أخذ", "اخذ", "اخد", "أخذت", "اخذت", "سرق", "سرقت", "استولى", "took", "stole")
     forced_entry_terms = ("كسر", "كسر قفل", "خلع", "دخل البيت", "دخل المنزل", "تسلل", "اقتحم", "forced entry")
     self_defense_terms = ("دفاع عن نفسي", "دفاعا عن نفسي", "هاجمني", "self defense", "self-defense")
@@ -250,7 +340,13 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
     threat = _matches(*threat_terms)
     # An unnamed/unseen digital medium ("عبر تطبيق ما بعرفه") plus threat language is the same
     # underlying cyber-extortion narrative as a named platform, so it must route the same way.
-    cyber = _matches(*cyber_terms) or (threat and _digital_medium_context(text))
+    # Likewise, a threat to expose private images/material is itself sufficient regardless of
+    # whether any medium is named at all, or is named but not in the fixed platform list.
+    cyber = (
+        _matches(*cyber_terms)
+        or (threat and _digital_medium_context(text))
+        or (threat and _image_disclosure_threat_context(text))
+    )
     violence = _matches(*violence_terms)
     taking = _matches(*taking_terms)
     forced_entry = _matches(*forced_entry_terms)
