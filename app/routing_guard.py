@@ -175,20 +175,33 @@ _PRIVATE_CONTENT_QUALIFIER_TERMS = (
     "شخصية", "شخصيه", "خصوصية", "خصوصيه",
     "private", "nude", "naked", "intimate", "explicit", "personal",
 )
+# A threat to leak private text conversations/messages -- not just images/video -- is the same
+# legal extortion conduct (Cybercrime Law doesn't turn on the media type either). Kept as a
+# separate tuple from _IMAGE_OR_MEDIA_TERMS so the original image-specific gate stays intact;
+# this only widens what counts as "disclosable private content" alongside it.
+_PRIVATE_COMMUNICATIONS_TERMS = (
+    "محادثات", "محادثاتي", "محادثاته", "محادثاتها", "رسائل خاصة", "رسائلي", "رسائله", "رسائلها",
+    "دردشة", "شات خاص", "مراسلات",
+    "conversations", "private messages", "chat logs", "messages",
+)
 
 
 def _image_disclosure_threat_context(text: str) -> bool:
-    """Recognize "threatens to expose private images/content" independently of the medium.
+    """Recognize "threatens to expose private images/content/messages" independently of the medium.
 
-    A threat to publish someone's intimate/private photos or material is the legally
-    determinative conduct here -- the electronic-extortion family this maps to does not
-    turn on which specific app carried the threat, or whether that app is even named at
-    all. Gating cyber routing on a closed platform-name list (or even the "unnamed medium"
-    grammatical detector, which only recognizes generic nouns like "app"/"platform") misses
-    a named-but-unlisted platform (e.g. Telegram) used without a generic noun alongside it,
-    and misses cases where no medium is mentioned at all. This checks the conduct directly.
+    A threat to publish someone's intimate/private photos, video, or private conversations is
+    the legally determinative conduct here -- the electronic-extortion family this maps to does
+    not turn on which specific app carried the threat, whether that app is even named at all, or
+    whether the threatened material is an image or a text conversation. Gating cyber routing on a
+    closed platform-name list (or even the "unnamed medium" grammatical detector, which only
+    recognizes generic nouns like "app"/"platform") misses a named-but-unlisted platform (e.g.
+    Telegram) used without a generic noun alongside it, and misses cases where no medium is
+    mentioned at all. This checks the conduct directly.
     """
-    has_media = _has(text, *_IMAGE_OR_MEDIA_TERMS) or contains_fuzzy(text, *_IMAGE_OR_MEDIA_TERMS)
+    has_media = (
+        _has(text, *_IMAGE_OR_MEDIA_TERMS) or contains_fuzzy(text, *_IMAGE_OR_MEDIA_TERMS)
+        or _has(text, *_PRIVATE_COMMUNICATIONS_TERMS) or contains_fuzzy(text, *_PRIVATE_COMMUNICATIONS_TERMS)
+    )
     if not has_media:
         return False
     has_disclosure_verb = _has(text, *_DISCLOSURE_VERB_TERMS) or contains_fuzzy(text, *_DISCLOSURE_VERB_TERMS)

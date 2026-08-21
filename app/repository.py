@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from .config import settings
 from .models import SourceItem
 from .text import normalize_ar
+from .legal_document_quality import _extract_number_year
 
 
 def now_iso():
@@ -48,8 +49,25 @@ class LegalRepository:
         with self.connect() as con:
             for title,domain in core:
                 ntitle=normalize_ar(title)
+                core_number,core_year=_extract_number_year(title)
                 docs=con.execute('select id,title_ar,source_url,source_kind from documents where domain=?',(domain,)).fetchall()
-                matches=[d for d in docs if normalize_ar(d['title_ar'])==ntitle or ntitle in normalize_ar(d['title_ar']) or normalize_ar(d['title_ar']) in ntitle]
+                # Identity is the union of two independent signals, not either alone: a
+                # descriptor word added to a real title (e.g. "الأردني") breaks substring
+                # matching even though it is unambiguously the same statute (caught by number
+                # +year instead), while a document whose own title never states a law number
+                # (e.g. a bare stub, or a law customarily cited without one) can only be caught
+                # by substring matching. Neither signal is reliably a superset of the other, so
+                # both run every time and their matches are combined.
+                matches_by_id={}
+                if core_number and core_year:
+                    for d in docs:
+                        if _extract_number_year(d['title_ar'])==(core_number,core_year):
+                            matches_by_id[d['id']]=d
+                for d in docs:
+                    dtitle=normalize_ar(d['title_ar'])
+                    if dtitle==ntitle or ntitle in dtitle or dtitle in ntitle:
+                        matches_by_id[d['id']]=d
+                matches=list(matches_by_id.values())
                 chunk_count=0; articles=set(); urls=[]; kinds=set()
                 for d in matches:
                     rows=con.execute('select article from chunks where document_id=?',(d['id'],)).fetchall()
