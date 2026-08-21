@@ -1,0 +1,42 @@
+name: Qanoni Corpus Sync to Supabase (manual, dry-run by default)
+
+on:
+  workflow_dispatch:
+    inputs:
+      live:
+        description: 'Type LIVE to actually write to Supabase. Anything else (or empty) stays dry-run.'
+        required: false
+        default: ''
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run corpus sync (dry run unless input 'live' == LIVE)
+        run: |
+          if [ "${{ github.event.inputs.live }}" = "LIVE" ]; then
+            echo "::warning::Running LIVE -- this will write to production Supabase"
+            python scripts/sync_corpus_to_supabase.py --live
+          else
+            echo "Running DRY RUN -- no Supabase writes"
+            python scripts/sync_corpus_to_supabase.py
+          fi
