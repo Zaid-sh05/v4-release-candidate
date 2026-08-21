@@ -141,7 +141,8 @@ def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
     breach_context = _has(
         text,
         "ما التزم", "لم يلتزم", "ما نفذ", "لم ينفذ", "أخل", "اخل", "فسخ", "تأخر بالتسليم",
-        "لم يسلم", "breach", "did not perform", "failed to deliver", "termination of contract",
+        "تأخر عن التسليم", "تأخر", "لم يسلم", "breach", "did not perform", "failed to deliver",
+        "termination of contract", "delayed",
     )
     debt_context = _has(
         text,
@@ -153,9 +154,15 @@ def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
         "ينكر الدين", "أنكر الدين", "انكر الدين", "بيقول دفع", "يدعي أنه دفع", "يدعي انه دفع",
         "denies the debt", "says he paid", "claims he paid",
     )
+    # "كسر" alone is ambiguous: "كسر القفل" (broke the lock) is a burglary entry method already
+    # captured by criminal.aggravating_entry / property_crime routing, not a standalone civil
+    # damages claim. Bare "كسر"/"تلف" was previously enough to fire this civil hypothesis even
+    # for a pure break-in-and-theft narrative with no independent property-damage claim, letting
+    # it outrank the correct criminal classification on confidence alone. Require an explicit
+    # damage/compensation-flavored term instead of the bare, overloaded verb.
     damage_context = _has(
         text,
-        "سبب لي ضرر", "سبب ضرر", "أتلف", "اتلف", "كسر", "تلف", "خسارة", "تعويض",
+        "سبب لي ضرر", "سبب ضرر", "أضرار", "أتلف", "اتلف", "تلف", "خسارة", "تعويض",
         "damaged", "loss", "compensation", "damages",
     )
 
