@@ -33,28 +33,28 @@ LEXICON = {
   'en': ['personal status','sharia court','sharia appeal','marriage','divorce','khula','maintenance','alimony','custody','dowry','inheritance','will','paternity'],
  },
  'criminal': {
-  'ar': ['قانون العقوبات','جزائي','جزائية','جنائي','جنائية','محكمة جزائية','قضية جزائية','قضية جنائية','جريمة','جناية','جنحة','عقوبة','حبس','سجن','قتل','شروع بالقتل','سرقة','احتيال','تزوير','اعتداء','ضرب','تهديد','اغتصاب','هتك عرض','تحرش','زنا','الزنا','مخدرات','رشوة','اختلاس','خطف','اتجار بالبشر','سلاح','شكوى جزائية','مدعي عام','المدعي العام','نيابة عامة','النيابة العامة','ادعاء عام','الادعاء العام'],
-  'en': ['penal code','criminal law','crime','felony','misdemeanor','penalty','prison','murder','attempted murder','theft','fraud','forgery','assault','rape','harassment','adultery','drugs','bribery','prosecution','public prosecutor'],
+  'ar': ['قانون العقوبات','جزائي','جزائية','جنائي','جنائية','محكمة جزائية','قضية جزائية','قضية جنائية','جريمة','جناية','جنحة','عقوبة','حبس','سجن','قتل','شروع بالقتل','سرقة','احتيال','تزوير','اعتداء','يعتدي علي','اعتداء جسدي','ضرب','تهديد','اغتصاب','هتك عرض','تحرش','زنا','الزنا','مخدرات','رشوة','اختلاس','خطف','اتجار بالبشر','سلاح','شكوى جزائية','مدعي عام','المدعي العام','نيابة عامة','النيابة العامة','ادعاء عام','الادعاء العام','عنف أسري','العنف الأسري','أمر حماية'],
+  'en': ['penal code','criminal law','crime','felony','misdemeanor','penalty','prison','murder','attempted murder','theft','fraud','forgery','assault','rape','harassment','adultery','drugs','bribery','prosecution','public prosecutor','domestic violence','protection order'],
  },
  'cyber': {
-  'ar': ['الجرائم الإلكترونية','جرائم الكترونية','ابتزاز إلكتروني','ابتزاز الكتروني','ابتزاز','ابتزني','ببتزني','يبتزني','تهكير','اختراق','حساب وهمي','واتساب','انستغرام','فيسبوك','تشهير إلكتروني','حماية البيانات','بيانات شخصية','خصوصية','المعاملات الإلكترونية'],
-  'en': ['cybercrime','electronic crimes','online blackmail','online extortion','hacking','social media','whatsapp','instagram','facebook','data protection','personal data','privacy','electronic transactions'],
+  'ar': ['الجرائم الإلكترونية','جرائم الكترونية','ابتزاز إلكتروني','ابتزاز الكتروني','ابتزاز','ابتزني','ببتزني','يبتزني','تهكير','اختراق','حساب وهمي','واتساب','انستغرام','فيسبوك','تشهير إلكتروني','حماية البيانات','بيانات شخصية','خصوصية','المعاملات الإلكترونية','التوقيع الإلكتروني','عقد إلكتروني'],
+  'en': ['cybercrime','electronic crimes','online blackmail','online extortion','hacking','social media','whatsapp','instagram','facebook','data protection','personal data','privacy','electronic transactions','electronic signature','e-contract'],
  },
  'commercial': {
-  'ar': ['قانون الشركات','شركة','شركات','سجل تجاري','مسؤولية محدودة','شركة مساهمة','مساهم','اعسار','إعسار','دائن','مدين','دين وهمي','ديون وهمية','إعادة التنظيم','استثمار','تاجر','شيك','كمبيالة','اندماج شركة'],
-  'en': ['companies law','company','companies','commercial register','limited liability','llc','shareholder','insolvency','creditor','debtor','investment','merchant','cheque','check'],
+  'ar': ['قانون الشركات','شركة','شركات','سجل تجاري','مسؤولية محدودة','شركة مساهمة','مساهم','اعسار','إعسار','دائن','مدين','دين وهمي','ديون وهمية','إعادة التنظيم','استثمار','تاجر','شيك','شيك بدون رصيد','كمبيالة','اندماج شركة','اتفاق احتكاري','تحديد الأسعار','منع المنافسة','هيئة المنافسة','ممارسات احتكارية','قانون المنافسة'],
+  'en': ['companies law','company','companies','commercial register','limited liability','llc','shareholder','insolvency','creditor','debtor','investment','merchant','cheque','check','antitrust','price fixing','competition law','monopoly practices'],
  },
  'civil': {
-  'ar': ['القانون المدني','قانون مدني','حكم مدني','الحكم المدني','قضية مدنية','دعوى مدنية','قضية حقوقية','دعوى حقوقية','عقد','تعويض','دين','قرض','إيجار','ايجار','مستأجر','مستاجر','مالك','بيع','شراء','وكالة','كفالة','التزام','ضرر','مطالبة مالية'],
-  'en': ['civil code','civil law','contract','compensation','debt','loan','lease','rent','tenant','landlord','sale','agency','guarantee','damages'],
+  'ar': ['القانون المدني','قانون مدني','حكم مدني','الحكم المدني','قضية مدنية','دعوى مدنية','قضية حقوقية','دعوى حقوقية','عقد','تعويض','دين','قرض','إيجار','ايجار','مستأجر','مستاجر','مالك','بيع','شراء','وكالة','كفالة','التزام','ضرر','مطالبة مالية','حقوق المؤلف','الملكية الفكرية','حقوق النشر','نسخ التصميم','سرقة أدبية','عيب مصنعي','استبدال المنتج','ضمان المنتج','حماية المستهلك'],
+  'en': ['civil code','civil law','contract','compensation','debt','loan','lease','rent','tenant','landlord','sale','agency','guarantee','damages','copyright','intellectual property','plagiarism','manufacturing defect','consumer protection'],
  },
  'procedure': {
-  'ar': ['أصول المحاكمات','اصول المحاكمات','استئناف','استأنف','استانف','استاناف','تمييز','طعن','نقض','فسخ الحكم','إعادة المحاكمة','اعادة المحاكمة','دعوى','تبليغ','تبليغ الحكم','تنفيذ حكم','تنفيذ الحكم','حجز','بينة','إثبات','اختصاص المحكمة','مهلة الطعن','ميعاد الطعن','مدة الاستئناف','ميعاد الاستئناف','الحكم القطعي','حكم قطعي','حكم وجاهي','حكم غيابي','وجاهي اعتباري','لائحة الاستئناف','رسوم الاستئناف','وساطة','تسوية قضائية','اتفاقية تسوية'],
-  'en': ['civil procedure','criminal procedure','appeal','cassation','review','lawsuit','service of process','judgment service','enforcement','attachment','evidence','jurisdiction','appeal deadline','final judgment','default judgment'],
+  'ar': ['أصول المحاكمات','اصول المحاكمات','استئناف','استأنف','استانف','استاناف','تمييز','طعن','نقض','فسخ الحكم','إعادة المحاكمة','اعادة المحاكمة','دعوى','تبليغ','تبليغ الحكم','تنفيذ حكم','تنفيذ الحكم','إجراءات التنفيذ','دائرة التنفيذ','حجز','بينة','إثبات','سند خطي','إثبات الدين','قانون البينات','اختصاص المحكمة','مهلة الطعن','ميعاد الطعن','مدة الاستئناف','ميعاد الاستئناف','الحكم القطعي','حكم قطعي','حكم وجاهي','حكم غيابي','وجاهي اعتباري','لائحة الاستئناف','رسوم الاستئناف','وساطة','تسوية قضائية','اتفاقية تسوية','بند التحكيم','هيئة تحكيم','إجراءات التحكيم','مركز التحكيم','التحكيم التجاري'],
+  'en': ['civil procedure','criminal procedure','appeal','cassation','review','lawsuit','service of process','judgment service','enforcement','attachment','evidence','jurisdiction','appeal deadline','final judgment','default judgment','arbitration clause','arbitration tribunal','arbitration proceedings','commercial arbitration','execution proceedings','evidence law'],
  },
  'administrative': {
-  'ar': ['القضاء الإداري','قرار إداري','موظف حكومي','وظيفة عامة','بلدية','أمانة عمان','رخصة مهن','عطاء حكومي','إدارة قضايا الدولة'],
-  'en': ['administrative law','administrative court','administrative decision','government employee','public service','municipality','public tender'],
+  'ar': ['القضاء الإداري','قرار إداري','موظف حكومي','وظيفة عامة','بلدية','أمانة عمان','رخصة مهن','عطاء حكومي','إدارة قضايا الدولة','تأسيس جمعية','جمعية خيرية','تسجيل جمعية','سجل الجمعيات','مجلس إدارة الجمعية','جمعية غير ربحية'],
+  'en': ['administrative law','administrative court','administrative decision','government employee','public service','municipality','public tender','establish an association','nonprofit association','register an association'],
  },
  'real_estate': {
   'ar': ['الملكية العقارية','عقار','أرض','ارض','طابو','دائرة الأراضي','سند تسجيل','إفراز','رهن عقاري','شقة'],
@@ -65,8 +65,8 @@ LEXICON = {
   'en': ['jordanian constitution','constitution','constitutional court','constitutional right','parliament','senate'],
  },
  'tax_finance': {
-  'ar': ['ضريبة الدخل','ضريبة المبيعات','جمارك','ضمان اجتماعي','تأمين','بنك','قرض بنكي','أصول افتراضية'],
-  'en': ['income tax','sales tax','customs','social security','insurance','banking','bank loan','virtual assets'],
+  'ar': ['ضريبة الدخل','ضريبة المبيعات','جمارك','الرسوم الجمركية','رسوم جمركية','تخليص جمركي','دائرة الجمارك','استيراد سيارة','ضمان اجتماعي','تأمين','بوليصة تأمين','شركة تأمين','مطالبة تأمين','تعويض تأميني','بنك','قرض بنكي','البنك المركزي','فتح حساب بنكي','حساب جاري','الأوراق المالية','بورصة عمان','البورصة الأردنية','البورصة','طرح أسهم','اكتتاب عام','هيئة الأوراق المالية','غسل الأموال','تمويل الإرهاب','عملية مالية مشبوهة','شركة صرافة','شرائح ضريبة الدخل','أصول افتراضية'],
+  'en': ['income tax','sales tax','customs','customs duty','customs clearance','social security','insurance','insurance policy','insurance claim','banking','bank loan','central bank','bank account','securities law','stock exchange','ipo','money laundering','suspicious transaction','income tax bracket','virtual assets'],
  },
 }
 
@@ -221,7 +221,7 @@ def analyze_query(text: str, requested_language: str='auto', force_domain: str|N
         primary='traffic'; domains=['traffic']; confidence=max(confidence,0.92)
     elif _contains_any(n,['ابتزاز إلكتروني','ابتزاز الكتروني','جرائم الكترونية','الجرائم الإلكترونية','تهكير','اختراق','cybercrime','online blackmail','online extortion'],lang):
         primary='cyber'; domains=['cyber']; confidence=max(confidence,0.9)
-    elif _contains_any(n,['فصلني','طردني','فصل تعسفي','صاحب العمل','عقد عمل','راتب','أجر','employment contract','wrongful dismissal','employer'],lang):
+    elif _contains_any(n,['فصلني','طردني','فصل تعسفي','صاحب العمل','عقد عمل','employment contract','wrongful dismissal','employer'],lang):
         primary='labor'; domains=['labor']; confidence=max(confidence,0.9)
 
     appeal_hit=_contains_any(n,['استئناف','استأنف','استانف','استاناف','تمييز','طعن','نقض','appeal','cassation'],lang)
