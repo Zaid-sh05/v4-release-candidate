@@ -16,6 +16,15 @@ from app.legal_document_quality import (
     extract_filename_metadata,
 )
 
+# Real opening text from Jordan's 1976 Civil Code (No. 43): its own promulgation notice uses
+# "لعام" ("for the year") rather than "لسنة" ("for year") -- a legitimate synonym the extractor
+# must also recognize, not a malformed document.
+_REAL_CIVIL_CODE_BODY_START = (
+    "قانون رقم (43) لعام 1976 القانون المدني\n\n"
+    "باب تمهيدي \n\nالفصل الاول \n\nاحكام عامة \n\n"
+    "المادة 1- يسمى هذا القانون (القانون المدني لسنة 1976) ويعمل به من 1 /1 / 01977"
+)
+
 _REAL_PENAL_CODE_FILENAME = "قانون_العقوبات_وتعديلاته__رقم_16_لسنة_1961-1.pdf"
 _REAL_PENAL_CODE_BODY_START = (
     "قانون العقوبات وتعديالته رقم 16 لسنة 1960                    \n\n\n"
@@ -50,6 +59,16 @@ def test_body_and_filename_year_conflict_is_flagged():
     assert {"field": "year", "body": "1960", "filename": "1961"} in conflicts
     # law_number agrees on both sides -- must NOT be flagged as a conflict.
     assert not any(c["field"] == "law_number" for c in conflicts)
+
+
+def test_body_metadata_accepts_liaam_as_a_synonym_for_lisana():
+    # "لعام 1976" must extract exactly like "لسنة 1976" would -- these are the same word
+    # semantically ("for the year"), and Jordan's real 1976 Civil Code promulgation notice
+    # uses the "لعام" phrasing, with the number/year leading the law's own name rather than
+    # following it ("قانون رقم (43) لعام 1976 القانون المدني").
+    meta = extract_body_metadata(_REAL_CIVIL_CODE_BODY_START)
+    assert meta.law_number == "43"
+    assert meta.year == "1976"
 
 
 def test_no_conflict_when_filename_has_no_parseable_metadata():

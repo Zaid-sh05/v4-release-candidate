@@ -111,8 +111,12 @@ def pretty_title(title: str, body: str = '', authority: str = '') -> str:
 def infer_legal_title(body: str) -> str | None:
     text = re.sub(r'\s+', ' ', body or '')[:4000]
     for pattern in [
-        r'((?:قانون|نظام|تعليمات)\s+.{3,120}?\s+رقم\s*\(?\s*[0-9٠-٩]+\s*\)?\s+لسنة\s*[0-9٠-٩]{4})',
-        r'((?:قانون|نظام|تعليمات)\s+.{3,140}?\s+لسنة\s*[0-9٠-٩]{4})',
+        # "قانون رقم (43) لعام 1976 القانون المدني" -- number/year lead the law's own name
+        # (the real phrasing of Jordan's 1976 Civil Code promulgation notice) rather than
+        # following it. Checked first/most specific so it wins over the generic fallback below.
+        r'((?:قانون|نظام|تعليمات)\s+رقم\s*\(?\s*[0-9٠-٩]+\s*\)?\s+(?:لسنة|لعام)\s*[0-9٠-٩]{4}\s+.{3,60})',
+        r'((?:قانون|نظام|تعليمات)\s+.{3,120}?\s+رقم\s*\(?\s*[0-9٠-٩]+\s*\)?\s+(?:لسنة|لعام)\s*[0-9٠-٩]{4})',
+        r'((?:قانون|نظام|تعليمات)\s+.{3,140}?\s+(?:لسنة|لعام)\s*[0-9٠-٩]{4})',
     ]:
         m = re.search(pattern, text)
         if m:
