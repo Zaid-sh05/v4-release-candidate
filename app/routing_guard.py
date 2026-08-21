@@ -209,7 +209,10 @@ _CYBER_TERMS = (
 _THREAT_TERMS = (
     "هدد", "هددني", "يهددني", "بهددني", "بتهددني", "تهديد",
     "ابتزاز", "ابتزني", "ببتزني", "يبتزني", "مبتزني",
-    "threat", "blackmail", "extortion",
+    # English inflected forms: the fuzzy-match threshold does not bridge "threatened" -> "threat"
+    # (SequenceMatcher ratio ~0.75, below the 0.84 floor), so the conjugated forms are listed
+    # explicitly -- the same approach already used for the Arabic conjugations above.
+    "threat", "threatened", "threatens", "threatening", "blackmail", "blackmailed", "extortion",
 )
 _VIOLENCE_TERMS = ("قتل", "قتله", "اعتداء", "ضرب", "ضربني", "طعن", "هاجمني", "سلاح", "سرقة", "سرقت", "سرق", "murder", "assault", "theft")
 # A distinct family from violence/property crime: unrelated but still domain=criminal offense
