@@ -238,8 +238,34 @@ _SEXUAL_OFFENSE_TERMS = (
 )
 
 
+# "Marital-interference" conduct -- enticing/inciting a spouse to leave the marital home, or
+# otherwise corrupting a marriage (Penal Code arts. 282/284's "المحرض والمتدخل في فعل الزنا"
+# family). Decomposed the same way as the labor termination guard above: an open set of
+# colloquial verbs (افساد/تخريب/تحريض/تدخل...) co-occurring with a spouse/marriage object,
+# rather than one fixed phrase, so paraphrases generalize instead of requiring an exact match.
+_MARITAL_INTERFERENCE_VERB_TERMS = (
+    "افساد", "افسد", "يفسد", "تفسد", "بيفسد",
+    "خرب", "يخرب", "تخرب", "بخرب", "تخريب",
+    "حرض", "حرضها", "حرضه", "يحرض", "تحريض", "بيحرض",
+    "تدخل", "يتدخل", "تتدخل", "التدخل", "بيتدخل",
+    "corrupt", "corrupting", "incite", "inciting", "incitement", "interfere", "interfering",
+)
+_SPOUSAL_RELATIONSHIP_TERMS = (
+    "علاقة زوجية", "علاقه زوجيه", "العلاقة الزوجية", "العلاقه الزوجيه",
+    "الرابطة الزوجية", "الروابط الزوجية", "بيت الزوجية", "بيت الزوجيه",
+    "زوج", "الزوج", "زوجة", "الزوجة", "زوجها", "زوجته", "بزوجها", "بزوجته",
+    "لزوجها", "لزوجته", "وزوجها", "وزوجته", "زوجين", "الزوجين", "بين زوجين", "بين الزوجين",
+    "marital relationship", "marital bond", "matrimonial home", "spouse", "husband", "wife",
+)
+
+
 def _matches_terms(text: str, *phrases: str) -> bool:
     return _has(text, *phrases) or contains_fuzzy(text, *phrases)
+
+
+def _marital_interference_context(text: str) -> bool:
+    """Recognize "corrupting/interfering with a marriage" conduct independent of exact wording."""
+    return _matches_terms(text, *_MARITAL_INTERFERENCE_VERB_TERMS) and _matches_terms(text, *_SPOUSAL_RELATIONSHIP_TERMS)
 
 
 def issue_signature(text: str) -> frozenset[str]:
@@ -253,6 +279,15 @@ def issue_signature(text: str) -> frozenset[str]:
     rather than silently passed through.
     """
     signature: set[str] = set()
+    if _marital_interference_context(text):
+        # The closest codified provisions (Penal Code arts. 282/284, the family-morals /
+        # adultery-incitement chapter) are themselves tagged 'sexual_offense' by the terms
+        # below ("الزاني"/"الزنا" etc.) -- their text never uses the colloquial verbs this
+        # family matches on. Co-tagging the query with 'sexual_offense' here is what lets a
+        # marital-interference query's evidence pass the overlap check against those articles,
+        # instead of every one of them scoring as a same-domain-wrong-topic conflict.
+        signature.add("marital_interference")
+        signature.add("sexual_offense")
     if _property_crime_context(text):
         signature.add("property_crime")
     if _traffic_context(text):
@@ -366,6 +401,7 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
     self_defense = _matches(*self_defense_terms)
     injury = _matches(*injury_terms)
     death = _matches(*death_terms)
+    marital_interference = _marital_interference_context(text)
 
     if appeal:
         extras: list[str] = []
@@ -391,6 +427,8 @@ def route_query(text: str, requested_language: str = "auto", force_domain: str |
         _set_primary(route, "labor", [], 0.92)
     elif self_defense or violence or (taking and forced_entry):
         _set_primary(route, "criminal", [], 0.9)
+    elif marital_interference:
+        _set_primary(route, "criminal", ["personal_status"], 0.9)
     elif personal:
         _set_primary(route, "personal_status", [], 0.92)
 
