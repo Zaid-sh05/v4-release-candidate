@@ -165,6 +165,33 @@ def spot_issues(case: CaseModel) -> list[LegalHypothesis]:
             status="needs_clarification",
         ))
 
+    # Enticing/inciting a spouse to leave the marital home, or otherwise corrupting a marriage,
+    # is real conduct with no fixed phrasing (افساد/تخريب/تحريض/تدخل + spouse/marriage object) --
+    # decomposed the same way as the termination/aggravating-entry hypotheses above rather than
+    # matched on one literal phrase. Without a hypothesis here, this issue family generates no
+    # retrieval-planner expansion queries, and a short colloquial paraphrase (e.g. "افسد علاقتها
+    # بزوجها") can fail to lexically match the actual statute text at all, or match an unrelated
+    # article that happens to share a word or two (see app/cognition/retrieval_planner.py).
+    marital_interference_present = _contains(
+        text,
+        "افساد", "افسد", "يفسد", "تفسد", "خرب", "يخرب", "تخرب", "بخرب", "تخريب",
+        "حرض", "حرضها", "حرضه", "يحرض", "تحريض", "تدخل", "يتدخل", "تتدخل",
+    ) and _contains(
+        text,
+        "زوج", "الزوج", "زوجة", "الزوجة", "زوجها", "زوجته", "بزوجها", "بزوجته",
+        "زوجين", "الزوجين", "علاقة زوجية", "الرابطة الزوجية", "الروابط الزوجية", "بيت الزوجية",
+    )
+    if marital_interference_present:
+        hypotheses.append(LegalHypothesis(
+            code="criminal.marital_interference",
+            label_ar="تحريض/تدخل قد يفسد رابطة زوجية",
+            domain="criminal",
+            rationale=["الوقائع تصف تحريضاً أو تدخلاً قد يفسد رابطة زوجية"],
+            missing_elements=["طبيعة التدخل أو التحريض بالتحديد", "هل ترتب عليه ترك بيت الزوجية أو الزنا؟"],
+            confidence=0.60,
+            status="needs_clarification",
+        ))
+
     appeal_present = (
         case.user_goal == "appeal"
         or "goal.appeal" in signals
