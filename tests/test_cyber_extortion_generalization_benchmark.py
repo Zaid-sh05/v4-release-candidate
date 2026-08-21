@@ -140,3 +140,63 @@ def test_unrelated_use_of_the_termination_verb_root_does_not_misfire_into_labor(
     # falsely classify as a labor dispute.
     route = route_query("انهى القاضي الجلسة وقال بيصدر الحكم لاحقا")
     assert route.primary_domain != "labor"
+
+
+# P0 regression: "عبر تيليجرام" (via Telegram) fell through both the fixed platform-name list
+# AND the "unnamed medium" grammatical detector, because Telegram IS named but the token after
+# the preposition is a specific product name, not one of the generic nouns ("app"/"platform")
+# that detector requires. Real production impact: the query fell all the way through to
+# domain=general, which -- before the app.chat._guard_sources issue-compatibility fix -- let
+# completely unrelated official documents (Public Security Law, Associations Law) answer a
+# cyber-threat scenario. This class of gap is intentionally not closed by adding "تيليجرام" to
+# a list: it is closed by recognizing the underlying threatened conduct (image/material
+# disclosure) directly, so it also covers platforms never enumerated anywhere in this file.
+_NAMED_BUT_UNLISTED_PLATFORMS = ["تيليجرام", "سناب شات", "تيك توك", "ماسنجر", "سيجنال", "تويتر"]
+
+
+def test_named_but_unlisted_platform_still_routes_to_cyber_via_image_disclosure_threat():
+    for platform in _NAMED_BUT_UNLISTED_PLATFORMS:
+        message = f"قام رائد بتهديد سوسن عبر {platform} بأنه سوف ينشر لها صور وهي عارية"
+        route = route_query(message)
+        assert "cyber" in route.domains or route.primary_domain == "cyber", (platform, route.primary_domain)
+
+
+_DISCLOSURE_MATERIAL_PHRASES = [
+    "صور عارية", "صور خاصة", "صور شخصية", "مواد خاصة", "فيديو خاص", "صور فاضحة",
+]
+
+
+def test_private_material_disclosure_threat_routes_to_cyber_regardless_of_wording():
+    """Property E (material-type invariance): the threatened material's exact description
+    must not gate routing -- "صور عارية" and "مواد خاصة" describe the same underlying
+    disclosure-threat conduct even though they share no common substring.
+    """
+    for material in _DISCLOSURE_MATERIAL_PHRASES:
+        message = f"هدد شخص آخر عبر إحدى منصات التواصل بأنه سينشر {material} الخاصة به"
+        route = route_query(message)
+        assert "cyber" in route.domains or route.primary_domain == "cyber", (material, route.primary_domain)
+
+
+def test_disclosure_threat_with_and_without_an_explicit_demand_both_route_to_cyber():
+    """Property F (demand-vs-no-demand invariance): a conditional demand ("ان لم تستجب
+    لطلباته") must not be required for cyber routing -- an unconditional disclosure threat is
+    the same underlying conduct as one with a stated condition attached.
+    """
+    no_demand = route_query("قام رائد بتهديد سوسن عبر تيليجرام بأنه سوف ينشر لها صور وهي عارية")
+    non_money_demand = route_query(
+        "قام رائد بتهديد سوسن عبر تيليجرام بأنه سوف ينشر لها صور فاضحة ان لم تستجب لطلباته"
+    )
+    money_demand = route_query(
+        "قام رائد بتهديد سوسن عبر تيليجرام بأنه سوف ينشر لها صور فاضحة ان لم تحول له مبلغاً من المال"
+    )
+    for route, label in ((no_demand, "no_demand"), (non_money_demand, "non_money_demand"), (money_demand, "money_demand")):
+        assert "cyber" in route.domains or route.primary_domain == "cyber", (label, route.primary_domain)
+
+
+def test_unnamed_and_named_disclosure_threats_do_not_infer_unstated_facts():
+    """The routing signal must come from the stated conduct only -- it must not require or
+    imply payment, sexual conduct, or any concept beyond threat + private-material disclosure.
+    """
+    route = route_query("قام رائد بتهديد سوسن عبر تيليجرام بأنه سوف ينشر لها صور وهي عارية")
+    assert route.primary_domain == "cyber"
+    assert "personal_status" not in route.domains  # must not be inferred as a family/marriage matter

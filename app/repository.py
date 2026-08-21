@@ -298,7 +298,15 @@ class LegalRepository:
                     base_for_doc=None
             else:
                 base_for_doc=base_titles.get(r['domain'])
-            law_anchor=bool(base_for_doc and normalize_ar(base_for_doc) in title_n and r['domain'] in domains)
+            # A law-name match is only meaningful "this is generally the right base statute"
+            # evidence for a whole-document candidate (no article number -- e.g. a reference-only
+            # row standing in for a law whose PDF text layer is unusable). Every properly
+            # segmented article chunk's title also contains the law's own name by construction
+            # ("<law name> — المادة N"), so applying this to articled rows made every single
+            # article of a canonical law an automatic anchor regardless of actual relevance --
+            # letting e.g. an unrelated adultery article outscore the real theft article for a
+            # theft query purely because both share the same law name in their title.
+            law_anchor=bool(base_for_doc and normalize_ar(base_for_doc) in title_n and r['domain'] in domains and not r['article'])
             canonical_anchor=r['source_kind'].startswith('canonical') and is_primary
 
             # Do not manufacture relevance merely because a document lives in the same domain.
@@ -335,9 +343,11 @@ class LegalRepository:
                 if 'اعسار' in title_n: score+=12.0
                 if 'ديون وهميه' in body_n or ('دائن' in body_n and 'وهم' in body_n): score+=8.0
 
-            # Base statutes should generally outrank implementing instructions for broad rights questions.
+            # Base statutes should generally outrank implementing instructions for broad rights
+            # questions -- but again, only as a whole-document signal (see law_anchor above),
+            # never as a per-article bonus every article of the base law would equally receive.
             base=base_titles.get(primary_domain)
-            if base and normalize_ar(base) in title_n: score+=3.0
+            if base and normalize_ar(base) in title_n and not r['article']: score+=3.0
 
             if any(x in title_n for x in ['القوانين وزاره','القوانين دائره','التشريعات الاردنيه','وثيقه قانونيه رسميه','التقرير السنوي','الكتاب السنوي']): score-=4.0
             if score>1.0: scored.append((score,r,content_hits))

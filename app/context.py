@@ -214,6 +214,29 @@ def _looks_like_followup_detail(message: str, route: RouteResult, last_assistant
     return route.primary_domain == 'general' or route.confidence < 0.42
 
 
+def _looks_like_same_domain_continuation(message: str, route: RouteResult, recent_users: list[str]) -> bool:
+    """A short message confidently classified into the SAME domain the previous turn already
+    established is strong evidence of a continuation, not evidence it stands alone.
+
+    The router being confident about a short message's domain says nothing about whether it
+    restates an already-open case ("سرق سيارة" right after a full break-in narrative) versus
+    describing a brand-new one -- confidence alone cannot distinguish those. What can: whether
+    the SAME topic was already present in the immediately preceding user turn. Membership in
+    that turn's full topic-score set is used rather than its single dominant topic, because a
+    message mentioning both a vehicle and a taking verb (a car theft) legitimately scores both
+    'traffic' and 'criminal' -- picking only the dict-order tie-break winner would silently
+    drop the very domain this short followup needs to match against.
+    """
+    if not recent_users:
+        return False
+    if route.primary_domain in {'general', 'conversation'}:
+        return False
+    tokens = [x for x in _n(message).split() if x]
+    if len(tokens) > 8:
+        return False
+    return route.primary_domain in _topic_scores(recent_users[-1])
+
+
 def _strong_topic_switch(message: str, route: RouteResult, recent_users: list[str], last_assistant: str = '') -> bool:
     if not recent_users or _looks_like_correction(message):
         return False
@@ -258,6 +281,7 @@ def contextualize_message(message: str, history: list[dict], route: RouteResult)
         _looks_like_correction(message)
         or _answers_prior_clarification(message, last_assistant)
         or _looks_like_followup_detail(message, route, last_assistant)
+        or _looks_like_same_domain_continuation(message, route, recent)
     )
     if not should_link:
         return message, False
