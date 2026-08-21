@@ -39,12 +39,14 @@ def _to_ascii_digits(s: str) -> str:
 
 
 def _extract_number_year(title: str | None) -> tuple[str | None, str | None]:
-    """Pull (law_number, year) out of a title string shaped like '... رقم 16 لسنة 1960'."""
+    """Pull (law_number, year) out of a title string shaped like '... رقم 16 لسنة 1960'
+    ('لعام' is an accepted synonym for 'لسنة' -- e.g. the Civil Code's own promulgation
+    notice reads 'رقم (43) لعام 1976')."""
     if not title:
         return None, None
     import re
 
-    m = re.search(r'رقم\s*\(?\s*([0-9٠-٩]{1,4})\s*\)?\s+لسنة\s*([0-9٠-٩]{4})', title)
+    m = re.search(r'رقم\s*\(?\s*([0-9٠-٩]{1,4})\s*\)?\s+(?:لسنة|لعام)\s*([0-9٠-٩]{4})', title)
     if not m:
         return None, None
     return _to_ascii_digits(m.group(1)), _to_ascii_digits(m.group(2))
