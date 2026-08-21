@@ -150,6 +150,25 @@ def test_e2e_marital_interference_query_cites_the_adultery_incitement_article():
     )
 
 
+def test_cognition_engine_spots_marital_interference_and_emits_targeted_retrieval_queries():
+    # Fixing the domain gate alone was not sufficient: a short colloquial paraphrase does not
+    # lexically match arts. 282/284's formal statutory wording at all (production Supabase FTS
+    # is AND-semantics on bare words -- see app/cognition/retrieval_planner.py), and without a
+    # dedicated hypothesis here the cognition engine generated zero expansion queries for this
+    # issue family, so some paraphrases retrieved an unrelated article (or none at all) even
+    # after the domain fix. "الزنا" alone is deliberately rejected here too: Penal Code art. 340
+    # (an unrelated killing-in-flagrante mitigation provision) also contains that bare word, so
+    # only the more specific "الزاني والزانية" bigram -- verbatim from art. 282's own text, and
+    # absent from art. 340 -- should be emitted.
+    case = _ENGINE.analyze('شخص يحاول يخرب بين زوج وزوجته', 'ar')
+    codes = {h.code for h in case.hypotheses}
+    assert 'criminal.marital_interference' in codes
+
+    queries = build_retrieval_queries(case)
+    assert 'الزاني والزانية' in queries
+    assert 'الزنا' not in queries
+
+
 def test_issue_mapping_distinguishes_cyber_threat_from_property_crime():
     # The deterministic cognition engine's own hypothesis vocabulary does not yet cover the
     # image-disclosure-threat family (a known, documented gap -- see app/routing_guard.py's

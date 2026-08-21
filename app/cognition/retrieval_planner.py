@@ -53,6 +53,15 @@ def build_retrieval_queries(case: CaseModel) -> list[str]:
                 "الدخول غير المصرح",
                 "الجرائم الإلكترونية",
             ])
+        elif h.code == "criminal.marital_interference":
+            # Same short-phrase, AND-semantics-safe pattern as the cyber queries above: a long
+            # colloquial description of the conduct will not lexically match arts. 282/284's
+            # formal statutory wording, but the words those articles actually use will. "الزنا"
+            # alone is deliberately excluded -- it also appears in the unrelated Art. 340
+            # (killing-in-flagrante mitigation), which does not contain "الزاني"/"والزانية" at
+            # all, so this exact bigram (verbatim from Art. 282's own opening clause) targets the
+            # family-morals chapter without also matching that unrelated article.
+            queries.append("الزاني والزانية")
         elif h.code == "cyber.private_data_misuse":
             queries.extend([
                 "قانون حماية البيانات الشخصية",
