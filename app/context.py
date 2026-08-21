@@ -257,35 +257,56 @@ def _strong_topic_switch(message: str, route: RouteResult, recent_users: list[st
     return signal_strength >= 2 or (signal_strength >= 1 and route.confidence >= 0.58)
 
 
-def contextualize_message(message: str, history: list[dict], route: RouteResult) -> tuple[str, bool]:
-    """Carry forward the active case only when the new turn genuinely belongs to it."""
+def contextualize_message(message: str, history: list[dict], route: RouteResult, trace=None) -> tuple[str, bool]:
+    """Carry forward the active case only when the new turn genuinely belongs to it.
+
+    `trace` is an optional `app.diagnostics.RequestTrace`; when supplied, the specific heuristic
+    that decided the link/no-link outcome is recorded on it (`context_attachment_reason`) so a
+    diagnostic trace can show WHY a turn was or was not attached to the prior case, not just the
+    final boolean.
+    """
+    def _decide(used: bool, reason: str) -> None:
+        if trace is not None:
+            trace.context_attachment_reason = reason
+
     recent = _recent_user_messages(history, 5)
     if not recent:
+        _decide(False, 'no_prior_substantive_history')
         return message, False
 
     if _looks_like_return_to_topic(message):
         target = _find_reactivation_target(route, recent)
         if target:
+            _decide(True, 'return_to_topic')
             if route.language == 'en':
                 return f'Previous facts from the same case:\n{target}\nNew follow-up facts or correction:\n{message}', True
             return f'وقائع سابقة من نفس القضية:\n{target}\nتفاصيل متابعة أو تصحيح جديد من المستخدم:\n{message}', True
 
     if _looks_like_explicit_new_case(message):
+        _decide(False, 'explicit_new_case_marker')
         return message, False
 
     last_assistant = _last_assistant_message(history)
     if _strong_topic_switch(message, route, recent, last_assistant):
+        _decide(False, 'strong_topic_switch')
         return message, False
 
-    should_link = (
-        _looks_like_correction(message)
-        or _answers_prior_clarification(message, last_assistant)
-        or _looks_like_followup_detail(message, route, last_assistant)
-        or _looks_like_same_domain_continuation(message, route, recent)
-    )
-    if not should_link:
+    if _looks_like_correction(message):
+        reason = 'correction_marker'
+    elif _answers_prior_clarification(message, last_assistant):
+        reason = 'answers_prior_clarification'
+    elif _looks_like_followup_detail(message, route, last_assistant):
+        reason = 'followup_detail'
+    elif _looks_like_same_domain_continuation(message, route, recent):
+        reason = 'same_domain_continuation'
+    else:
+        reason = 'no_link_heuristic_matched'
+
+    if reason == 'no_link_heuristic_matched':
+        _decide(False, reason)
         return message, False
 
+    _decide(True, reason)
     prior = recent[-2:]
     if route.language == 'en':
         context = '\n'.join(prior)

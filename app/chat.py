@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import re
+
 from .answer_engine import generate_grounded_answer, insufficient_answer
 from .case_analysis import generate_case_analysis_answer
 from .cognition import CaseCognitionEngine
 from .context import contextualize_message
+from .diagnostics import RequestTrace
 from .evaluator import evaluate_answer
 from .llm import embed_query, generate_answer
 from .models import ChatRequest, ChatResponse, RouteResult, SourceItem
@@ -13,6 +16,8 @@ from .routing_guard import issue_signature
 from .runtime_store import runtime_store
 from .supabase_store import supabase_store
 from .text import looks_garbled_text, normalize_ar, strip_emoji_style
+
+_CITATION_RE = re.compile(r'\[S(\d+)\]')
 
 AR_DISCLAIMER='معلومات قانونية عامة مستندة إلى مصادر رسمية، ولا تغني عن استشارة محامٍ مرخص أو قرار الجهة المختصة.'
 EN_DISCLAIMER='General legal information grounded in official sources; it is not a substitute for advice from a licensed lawyer or the competent authority.'
@@ -87,17 +92,29 @@ def _source_issue_compatible(query_signature:frozenset,source:SourceItem)->bool:
     return bool(query_signature & source_signature)
 
 
-def _guard_sources(route:RouteResult,sources:list[SourceItem])->list[SourceItem]:
+def _guard_sources(route:RouteResult,sources:list[SourceItem],trace:RequestTrace|None=None)->list[SourceItem]:
     """Keep only readable sources that belong to the active legal route AND issue family."""
     allowed=set(route.domains or [route.primary_domain])
     query_signature=issue_signature(route.normalized_text or '')
     cleaned=[]; seen=set()
     for source in sources:
-        if source.id in seen or source.domain not in allowed or not _source_is_usable(source):
+        domain_ok=source.domain in allowed
+        usable=_source_is_usable(source)
+        if source.id in seen:
             continue
-        if not _source_issue_compatible(query_signature,source):
+        if not domain_ok or not usable:
+            if trace is not None:
+                reason='wrong_domain' if not domain_ok else 'unusable_excerpt'
+                trace.record_gate_decision(source,domain_compatible=domain_ok,issue_compatible=None,accepted=False,reason=reason)
+            continue
+        issue_ok=_source_issue_compatible(query_signature,source)
+        if not issue_ok:
+            if trace is not None:
+                trace.record_gate_decision(source,domain_compatible=True,issue_compatible=False,accepted=False,reason='issue_family_mismatch')
             continue
         seen.add(source.id); cleaned.append(source)
+        if trace is not None:
+            trace.record_gate_decision(source,domain_compatible=True,issue_compatible=True,accepted=True,reason=None)
 
     strict_primary={'cyber','personal_status','labor','commercial'}
     if route.primary_domain in strict_primary:
@@ -146,8 +163,8 @@ def _cloud_keyword_sources(queries:list[str],domains:list[str],limit:int=12)->li
     return out
 
 
-def _choose_grounded(message:str,route:RouteResult,sources:list[SourceItem]):
-    sources=_guard_sources(route,sources)
+def _choose_grounded(message:str,route:RouteResult,sources:list[SourceItem],trace:RequestTrace|None=None):
+    sources=_guard_sources(route,sources,trace)
     grounded=generate_grounded_answer(message,route,sources)
     if not grounded: return None,None
     evaluation=evaluate_answer(message,route,grounded.text,sources)
@@ -224,7 +241,43 @@ def _needs_broad_synthesis(message:str,route:RouteResult)->bool:
     ))
 
 
-def handle_chat(req:ChatRequest)->ChatResponse:
+def _record_case_on_trace(trace:RequestTrace|None,case)->None:
+    if trace is None or case is None:
+        return
+    trace.actors=[{'id':a.id,'label':a.label,'role':a.role} for a in getattr(case,'actors',[])]
+    trace.events=[{'text':e.text,'event_type':e.event_type,'actors':e.actors} for e in getattr(case,'events',[])]
+    trace.disputed_facts=[f.text for f in getattr(case,'facts',[]) if getattr(f,'disputed',False)]
+    trace.cognition_warnings=list(getattr(case,'warnings',[]) or [])
+    trace.cognition_ambiguities=list(getattr(case,'cognition_ambiguities',[]) or [])
+    trace.legal_hypotheses=[
+        {'code':h.code,'domain':h.domain,'confidence':h.confidence,'status':h.status}
+        for h in getattr(case,'hypotheses',[])
+    ]
+
+
+def _cited_source_ids(answer:str,sources:list[SourceItem])->list[str]:
+    """Best-effort mapping of "[S<n>]" inline citation markers back to source ids.
+
+    This is a diagnostic approximation, not a guarantee the writer used the excerpt correctly --
+    it only recovers WHICH of the sources handed to the writer were referenced by index, which is
+    enough to distinguish "the right evidence never reached the writer" (evidence-selection layer)
+    from "the right evidence was available but the final wording is wrong" (writer layer).
+    """
+    ids=[]
+    for match in _CITATION_RE.finditer(answer or ''):
+        idx=int(match.group(1))-1
+        if 0<=idx<len(sources) and sources[idx].id not in ids:
+            ids.append(sources[idx].id)
+    return ids
+
+
+def handle_chat(req:ChatRequest,trace:RequestTrace|None=None)->ChatResponse:
+    """Run the real chat pipeline. `trace`, when supplied, is filled in as a diagnostic side
+    record (see app.diagnostics.RequestTrace) -- it never changes what is retrieved, generated,
+    or returned. The public HTTP layer never passes it; only test/admin callers do."""
+    if trace is not None:
+        trace.raw_input=req.message
+
     prior_history=[]
     if req.conversation_id:
         try:
@@ -233,8 +286,14 @@ def handle_chat(req:ChatRequest)->ChatResponse:
             prior_history=[]
 
     initial_route=analyze_query(req.message,req.language,req.force_domain)
-    effective_message,used_context=contextualize_message(req.message,prior_history,initial_route)
+    effective_message,used_context=contextualize_message(req.message,prior_history,initial_route,trace)
     route=analyze_query(effective_message,req.language,req.force_domain) if used_context else initial_route
+
+    if trace is not None:
+        trace.normalized_input=route.normalized_text or ''
+        trace.detected_language=route.language
+        trace.detected_intent=route.intent
+        trace.context_attachment_used=used_context
 
     if route.intent!='smalltalk':
         try:
@@ -247,37 +306,56 @@ def handle_chat(req:ChatRequest)->ChatResponse:
     else:
         case=None
         cognition_queries=[]
+    _record_case_on_trace(trace,case)
 
     review_queries=_feedback_review_expansions(req.message,route.primary_domain) if route.intent!='smalltalk' else []
     cognition_queries=list(dict.fromkeys(cognition_queries+review_queries))[:10]
     broad_synthesis=_needs_broad_synthesis(effective_message,route)
 
+    if trace is not None:
+        trace.detected_domains=list(route.domains)
+        trace.primary_domain=route.primary_domain
+        trace.issue_signature=sorted(issue_signature(route.normalized_text or ''))
+
     cid=runtime_store.ensure_conversation(req.conversation_id,route.language)
+    if trace is not None:
+        trace.active_conversation_id=cid
     runtime_store.save_message(cid,'user',req.message,route.primary_domain,route.intent)
     if route.intent=='smalltalk':
         answer=strip_emoji_style(smalltalk(req.message,route.language))
         runtime_store.save_message(cid,'assistant',answer,'conversation','smalltalk')
+        if trace is not None:
+            trace.final_mode='conversation'
+            trace.fallback_reason='smalltalk_intent'
         return ChatResponse(answer=answer,route=route,sources=[],mode='conversation',conversation_id=cid,disclaimer='')
 
     sources=[]
     emb=embed_query(effective_message)
     if emb:
         sources=_supabase_sources(supabase_store.hybrid_search(effective_message,emb,route.domains,8))
+        if trace is not None: trace.record_candidates('hybrid',sources)
     if not sources and supabase_store.configured:
         sources=_cloud_keyword_sources([effective_message],route.domains,8)
+        if trace is not None: trace.record_candidates('cloud_keyword',sources)
     if not sources:
         sources=repository.search(effective_message,route.domains,8)
-    sources=_guard_sources(route,sources)
+        if trace is not None: trace.record_candidates('lexical',sources)
+    if trace is not None:
+        trace.retrieval_queries=[effective_message]
+    sources=_guard_sources(route,sources,trace)
 
     if cognition_queries and (not sources or route.confidence < 0.8 or review_queries or broad_synthesis):
+        if trace is not None:
+            trace.retrieval_queries=list(dict.fromkeys(trace.retrieval_queries+cognition_queries))
         cognitive_sources=_cloud_keyword_sources([effective_message]+cognition_queries,route.domains,12)
         if not cognitive_sources:
             cognitive_sources=repository.adaptive_search(effective_message,route.domains,route.intent,12,cognition_queries)
-        cognitive_sources=_guard_sources(route,cognitive_sources)
+        if trace is not None: trace.record_candidates('adaptive',cognitive_sources)
+        cognitive_sources=_guard_sources(route,cognitive_sources,trace)
         if cognitive_sources:
             sources=cognitive_sources
 
-    grounded,evaluation=_choose_grounded(effective_message,route,sources)
+    grounded,evaluation=_choose_grounded(effective_message,route,sources,trace)
     best_grounded=grounded
     best_eval=evaluation
     best_sources=sources
@@ -286,17 +364,22 @@ def handle_chat(req:ChatRequest)->ChatResponse:
     if broad_synthesis or grounded is None or grounded.strength!='strong' or (evaluation and evaluation.should_retry):
         evaluation_seed=evaluation or evaluate_answer(effective_message,route,'',sources)
         expansions=list(dict.fromkeys((evaluation_seed.expanded_queries or [])+cognition_queries))[:10]
+        if trace is not None:
+            trace.retrieval_queries=list(dict.fromkeys(trace.retrieval_queries+expansions))
         adaptive_sources=_cloud_keyword_sources([effective_message]+expansions,route.domains,12)
         if not adaptive_sources:
             adaptive_sources=repository.adaptive_search(effective_message,route.domains,route.intent,12,expansions)
-        adaptive_sources=_guard_sources(route,adaptive_sources)
+        if trace is not None: trace.record_candidates('adaptive',adaptive_sources)
+        adaptive_sources=_guard_sources(route,adaptive_sources,trace)
         if adaptive_sources:
-            adaptive_grounded,adaptive_eval=_choose_grounded(effective_message,route,adaptive_sources)
+            adaptive_grounded,adaptive_eval=_choose_grounded(effective_message,route,adaptive_sources,trace)
             if adaptive_grounded and (best_eval is None or adaptive_eval.score>=best_eval.score or broad_synthesis):
                 best_grounded,best_eval,best_sources=adaptive_grounded,adaptive_eval,adaptive_sources
                 used_adaptive=True
 
-    best_sources=_guard_sources(route,best_sources)
+    best_sources=_guard_sources(route,best_sources,trace)
+    if trace is not None:
+        trace.accepted_source_ids=[s.id for s in best_sources]
     case_analysis=None
     case_analysis_eval=None
     if case and route.intent=='legal_question':
@@ -311,6 +394,7 @@ def handle_chat(req:ChatRequest)->ChatResponse:
     base_answer=None
     base_eval=best_eval
     base_mode=extractive_mode
+    fallback_reason=''
     if case_analysis and case_analysis_eval and case_analysis_eval.passed:
         base_answer=case_analysis.text
         base_eval=case_analysis_eval
@@ -319,8 +403,10 @@ def handle_chat(req:ChatRequest)->ChatResponse:
         base_answer=best_grounded.text
     elif best_grounded:
         base_answer=best_grounded.text
+        fallback_reason='grounded_answer_below_pass_threshold'
     else:
         critical={'penalty','deadline','appeal_deadline','fees','judgment','rights'}
+        fallback_reason='no_grounded_answer'
         base_answer=insufficient_answer(effective_message,route,best_sources) if route.intent in critical else retrieval_fallback(effective_message,route,best_sources)
         base_eval=evaluate_answer(effective_message,route,base_answer,best_sources)
 
@@ -342,6 +428,7 @@ def handle_chat(req:ChatRequest)->ChatResponse:
             answer=llm_answer
             best_eval=llm_eval
             mode='official-openai-grounded-writer'+cognition_suffix
+            fallback_reason=''
 
     answer=strip_emoji_style(answer or insufficient_answer(effective_message,route,best_sources))
     final_eval=evaluate_answer(effective_message,route,answer,best_sources)
@@ -350,4 +437,8 @@ def handle_chat(req:ChatRequest)->ChatResponse:
     except Exception:
         pass
     runtime_store.save_message(cid,'assistant',answer,route.primary_domain,route.intent)
+    if trace is not None:
+        trace.final_mode=mode
+        trace.final_cited_source_ids=_cited_source_ids(answer,best_sources)
+        trace.fallback_reason=fallback_reason
     return ChatResponse(answer=answer,route=route,sources=best_sources,mode=mode,conversation_id=cid,disclaimer=AR_DISCLAIMER if route.language=='ar' else EN_DISCLAIMER)
